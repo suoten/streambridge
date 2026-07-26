@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -622,6 +623,19 @@ func (s *Server) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slicer := sess.HLSSlicer()
+	// 确保 stream ID 已设置(防止切片 URL 缺少前缀导致 404)
+	slicer.SetStreamID(streamID)
+
+	// 如果还没有切片完成,返回一个空的 live playlist 让 hls.js 持续轮询
+	// 不返回 503,因为 hls.js 会将 503 视为 manifestLoadError(致命错误)
+	if !slicer.HasSegments() {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Cache-Control", "no-cache")
+		// 返回一个有效的空 live playlist,hls.js 会按 target duration 轮询
+		fmt.Fprint(w, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n")
+		return
+	}
+
 	playlist := slicer.Playlist()
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -650,6 +664,7 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Write(data)
 }
 

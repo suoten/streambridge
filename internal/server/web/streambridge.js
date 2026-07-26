@@ -90,6 +90,8 @@
       this._bytesReceived = 0;
       this._lastStatsTime = 0;
       this._lastBufferEnd = 0;
+      this._lastDataTime = 0;  // 最后一次收到数据的时间戳
+      this._staleCheckTimer = null;  // 数据活性检测定时器
       // 重连退避
       this._reconnectDelay = 2000;
       this._maxReconnectDelay = 30000;
@@ -215,7 +217,7 @@
       this._initDemuxer();
       this._connectWS(wsUrl);
 
-      // 启动数据接收超时检测(15 秒无视频数据则报错)
+      // 启动数据接收超时检测(30 秒无视频数据则报错)
       this._startDataTimeout();
     }
 
@@ -225,21 +227,10 @@
 
       this.mse.addEventListener('sourceopen', () => {
         this._mseReady = true;
+        // 重置 currentTime,避免上一个流的播放位置残留导致新流缓冲被误删
+        try { this.video.currentTime = 0; } catch (e) {}
         this._flushQueues();
       });
-
-      // 数据接收超时:如果 15 秒内没有收到视频 init segment,说明流可能有问题
-      this._dataTimeoutTimer = setTimeout(() => {
-        if (!this._destroyed && !this._everReceivedVideo) {
-          if (!this._fallbackTried) {
-            this._fallbackTried = true;
-            this._emit('onError', '15 秒内未收到视频数据,可能是 H265 编码或源不可用。正在自动切换到 HLS 模式...');
-            this._fallbackToHLS();
-          } else {
-            this._emit('onError', '15 秒内未收到视频数据。请检查:1) 源地址是否正确 2) 网络是否可达 3) 摄像头是否在线');
-          }
-        }
-      }, 15000);
 
       this.mse.addEventListener('sourceended', () => {
         // 仅在非重置情况下报错(重置时 _destroyed 或 _resetMSE 会设为预期)
@@ -308,21 +299,42 @@
     // 启动数据接收超时
     _startDataTimeout() {
       this._clearDataTimeout();
-      this._dataTimeoutTimer = setTimeout(() => {
-        if (!this._destroyed && !this._everReceivedVideo) {
+      this._lastDataTime = Date.now();
+      // 数据活性检测:每 5 秒检查一次,如果 30 秒无数据则触发超时
+      this._staleCheckTimer = setInterval(() => {
+        if (this._destroyed || this._everReceivedVideo) {
+          // 已收到视频数据,停止活性检测
+          if (this._staleCheckTimer) {
+            clearInterval(this._staleCheckTimer);
+            this._staleCheckTimer = null;
+          }
+          return;
+        }
+        const elapsed = Date.now() - this._lastDataTime;
+        if (elapsed > 30000) {
+          if (this._staleCheckTimer) {
+            clearInterval(this._staleCheckTimer);
+            this._staleCheckTimer = null;
+          }
           if (!this._fallbackTried) {
             this._fallbackTried = true;
-            this._emit('onError', '15 秒内未收到视频数据,可能是 H265 编码或源不可用。正在自动切换到 HLS 模式...');
+            this._emit('onError', '30 秒内未收到视频数据,可能是源不可用或编码不支持。正在切换到 HLS 模式...');
             this._fallbackToHLS();
           } else {
-            this._emit('onError', '15 秒内未收到视频数据。请检查:1) 源地址是否正确 2) 网络是否可达 3) 摄像头是否在线');
+            this._emit('onError', '30 秒内未收到视频数据。请检查:1) 源地址是否正确 2) 网络是否可达 3) 摄像头是否在线');
           }
         }
-      }, 15000);
+      }, 5000);
+      // 兼容:保留旧的 _dataTimeoutTimer 引用
+      this._dataTimeoutTimer = this._staleCheckTimer;
     }
 
     // 清除数据接收超时
     _clearDataTimeout() {
+      if (this._staleCheckTimer) {
+        clearInterval(this._staleCheckTimer);
+        this._staleCheckTimer = null;
+      }
       if (this._dataTimeoutTimer) {
         clearTimeout(this._dataTimeoutTimer);
         this._dataTimeoutTimer = null;
@@ -347,6 +359,7 @@
         if (!this.demuxer) return;
         const data = new Uint8Array(ev.data);
         this._bytesReceived += data.length;
+        this._lastDataTime = Date.now();
         this.demuxer.feed(data);
       };
 
@@ -357,7 +370,7 @@
       this.ws.onclose = (ev) => {
         if (this._destroyed) return;
         if (ev.code !== 1000) {
-          this._emit('onError', `WebSocket 关闭 (code=${ev.code})`);
+          this._emit('onError', `WebSocket 关闭 (code=${ev.code}),尝试重连...`);
         }
         // 尝试自动重连(仅非正常关闭),使用指数退避
         if (ev.code !== 1000 && !this._destroyed) {
@@ -371,7 +384,11 @@
               }
               // 重置 MSE SourceBuffer(需要重新接收 init segment)
               this._resetMSE();
+              // 重置数据接收状态,以便重新检测数据超时
+              this._everReceivedVideo = false;
               this._connectWS(this.wsUrl);
+              // 重启数据超时检测(给重连后的流更多时间)
+              this._startDataTimeout();
             }
           }, delay);
         }
@@ -450,9 +467,9 @@
       this.mse = null;
       this._mseReady = false;
 
-      // 停止当前流
+      // 停止当前流(必须等待完成,避免新流复用旧 session)
       if (this.streamId) {
-        stopStream(this._gateway(), this.streamId);
+        await stopStream(this._gateway(), this.streamId);
         this.streamId = null;
       }
 
@@ -665,9 +682,17 @@
         if (this.videoSB.buffered.length === 0) return;
         const buffered = this.videoSB.buffered;
         const end = buffered.end(buffered.length - 1);
+        const start = buffered.start(0);
         const targetLatency = this.opts.liveBufferLatency || 1.5;
         const maxLatency = this.opts.liveBufferMaxLatency || 4;
         const behind = end - this.video.currentTime;
+
+        // 如果 currentTime 在缓冲范围之外(如切换流后未重置),seek 到直播边缘
+        if (this.video.currentTime < start - 1 || this.video.currentTime > end + 1) {
+          this.video.currentTime = Math.max(start, end - targetLatency);
+          this.video.playbackRate = 1.0;
+          return;
+        }
 
         // 超过最大延迟,硬追赶(直接 seek)
         if (behind > maxLatency) {
@@ -684,7 +709,8 @@
         }
 
         // 清理已播放过的旧缓冲(保留 10 秒)
-        if (this.video.currentTime > 10) {
+        // 仅当 currentTime 在缓冲范围内时才清理,避免误删
+        if (this.video.currentTime > 10 && this.video.currentTime >= start && this.video.currentTime <= end) {
           for (const sb of [this.videoSB, this.audioSB]) {
             if (sb && !sb.updating && sb.buffered.length > 0) {
               sb.remove(0, this.video.currentTime - 5);
@@ -852,15 +878,15 @@
 
       const hls = new Hls({
         liveDurationInfinity: true,
-        lowLatencyMode: true,
+        lowLatencyMode: false,
         enableWorker: true,
-        // 错误恢复配置
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 500,
-        manifestLoadingMaxRetry: 3,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingMaxRetry: 3,
-        levelLoadingRetryDelay: 500,
+        // 错误恢复配置(直播流刚启动时可能没有切片,需要更多重试)
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetry: 10,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 10,
+        levelLoadingRetryDelay: 1000,
       });
 
       hls.loadSource(hlsUrl);
@@ -871,18 +897,40 @@
         this.video.play().catch(() => {});
       });
 
+      let mediaErrorCount = 0;
+      let networkErrorCount = 0;
       hls.on(Hls.Events.ERROR, (_, data) => {
+        console.log('[HLS-ERROR]', JSON.stringify({type: data.type, details: data.details, fatal: data.fatal, reason: data.reason, error: data.error?.message}));
         if (!data.fatal) return;
 
         // 尝试自动恢复
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            this._emit('onError', 'HLS 网络错误: ' + data.details + ' (尝试恢复...)');
-            hls.startLoad();
+            networkErrorCount++;
+            if (networkErrorCount > 5) {
+              this._emit('onError', 'HLS 网络错误: ' + data.details + ' (恢复失败,已达重试上限)');
+              hls.destroy();
+              this._hls = null;
+            } else {
+              this._emit('onError', 'HLS 网络错误: ' + data.details + ' (尝试恢复...' + networkErrorCount + '/5)');
+              // manifestLoadError 时重新加载整个源,startLoad 可能不够
+              if (data.details === 'manifestLoadError') {
+                setTimeout(() => { hls.loadSource(hlsUrl); }, 1000 * networkErrorCount);
+              } else {
+                hls.startLoad();
+              }
+            }
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
-            this._emit('onError', 'HLS 媒体错误: ' + data.details + ' (尝试恢复...)');
-            hls.recoverMediaError();
+            mediaErrorCount++;
+            if (mediaErrorCount > 3) {
+              this._emit('onError', 'HLS 媒体错误: ' + data.details + ' (恢复失败)');
+              hls.destroy();
+              this._hls = null;
+            } else {
+              this._emit('onError', 'HLS 媒体错误: ' + data.details + ' (尝试恢复...)');
+              hls.recoverMediaError();
+            }
             break;
           default:
             this._emit('onError', 'HLS 致命错误: ' + data.details);
@@ -912,25 +960,59 @@
     // ===== WebRTC WHEP =====
     async _playWebRTC(streamId) {
       const gateway = this._gateway();
-      const pc = new RTCPeerConnection();
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
       this.pc = pc;
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
+
+      // 收到的轨道可能分多次到达,统一管理 MediaStream
+      let remoteStream = new MediaStream();
+      this.video.srcObject = remoteStream;
+
       pc.ontrack = (event) => {
-        this.video.srcObject = event.streams[0];
+        // pion/webrtc 不创建 MediaStream,event.streams 可能为空
+        // 需要手动创建 MediaStream 并添加 track
+        if (event.streams && event.streams.length > 0) {
+          // 使用服务端提供的 stream
+          remoteStream = event.streams[0];
+        } else {
+          // pion 场景:将 track 添加到我们创建的 stream
+          remoteStream.addTrack(event.track);
+        }
+        this.video.srcObject = remoteStream;
         this._emit('onConnected', { mode: 'webrtc' });
         this.video.play().catch(() => {});
       };
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+
+      // 等待 ICE 收集完成(非 trickle ICE,WHEP 需要完整 SDP)
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        const checkState = () => {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', checkState);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', checkState);
+        // 超时保护(3 秒)
+        setTimeout(resolve, 3000);
+      });
+
       try {
         const resp = await fetch(`${gateway}/whep/${streamId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/sdp' },
-          body: offer.sdp,
+          body: pc.localDescription.sdp,
         });
         if (!resp.ok) {
-          this._emit('onError', `WHEP 协商失败: ${resp.status}`);
+          // 读取错误响应体,显示具体错误信息
+          const errText = await resp.text().catch(() => '');
+          this._emit('onError', `WHEP 协商失败: ${resp.status} - ${errText || resp.statusText}`);
           return;
         }
         const answerSdp = await resp.text();
@@ -1012,6 +1094,7 @@
       this._clearDataTimeout();
       this._clearHlsListeners();
       this._stopStats();
+      this._clearDataTimeout();
       if (this.ws) { try { this.ws.close(); } catch (e) {} this.ws = null; }
       if (this.pc) { try { this.pc.close(); } catch (e) {} this.pc = null; }
       if (this._hls) { try { this._hls.destroy(); } catch (e) {} this._hls = null; }

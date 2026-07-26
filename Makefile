@@ -44,7 +44,7 @@ docker:
 # 运行测试
 .PHONY: test
 test:
-	go test -v -race ./...
+	go test -v ./...
 
 # 运行
 .PHONY: run

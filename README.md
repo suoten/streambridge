@@ -17,7 +17,6 @@
 - 🐯 Gitee 仓库(国内访问更快):<https://gitee.com/suoten/streambridge>
 
 > 🌟 **如果 StreamBridge 帮到了你,欢迎 [点个 Star](https://github.com/suoten/streambridge) 支持一下!**
-> 🎬 **在线 Demo**:[http://demo.streambridge.example.com:8080](http://demo.streambridge.example.com:8080)(如已部署)
 
 ### 🎯 适用场景
 

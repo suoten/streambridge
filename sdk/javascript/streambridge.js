@@ -225,6 +225,8 @@
 
       this.mse.addEventListener('sourceopen', () => {
         this._mseReady = true;
+        // 重置 currentTime,避免上一个流的播放位置残留导致新流缓冲被误删
+        try { this.video.currentTime = 0; } catch (e) {}
         this._flushQueues();
       });
 
@@ -450,9 +452,9 @@
       this.mse = null;
       this._mseReady = false;
 
-      // 停止当前流
+      // 停止当前流(必须等待完成,避免新流复用旧 session)
       if (this.streamId) {
-        stopStream(this._gateway(), this.streamId);
+        await stopStream(this._gateway(), this.streamId);
         this.streamId = null;
       }
 
@@ -665,9 +667,17 @@
         if (this.videoSB.buffered.length === 0) return;
         const buffered = this.videoSB.buffered;
         const end = buffered.end(buffered.length - 1);
+        const start = buffered.start(0);
         const targetLatency = this.opts.liveBufferLatency || 1.5;
         const maxLatency = this.opts.liveBufferMaxLatency || 4;
         const behind = end - this.video.currentTime;
+
+        // 如果 currentTime 在缓冲范围之外(如切换流后未重置),seek 到直播边缘
+        if (this.video.currentTime < start - 1 || this.video.currentTime > end + 1) {
+          this.video.currentTime = Math.max(start, end - targetLatency);
+          this.video.playbackRate = 1.0;
+          return;
+        }
 
         // 超过最大延迟,硬追赶(直接 seek)
         if (behind > maxLatency) {
@@ -684,7 +694,8 @@
         }
 
         // 清理已播放过的旧缓冲(保留 10 秒)
-        if (this.video.currentTime > 10) {
+        // 仅当 currentTime 在缓冲范围内时才清理,避免误删
+        if (this.video.currentTime > 10 && this.video.currentTime >= start && this.video.currentTime <= end) {
           for (const sb of [this.videoSB, this.audioSB]) {
             if (sb && !sb.updating && sb.buffered.length > 0) {
               sb.remove(0, this.video.currentTime - 5);
@@ -854,13 +865,13 @@
         liveDurationInfinity: true,
         lowLatencyMode: true,
         enableWorker: true,
-        // 错误恢复配置
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 500,
-        manifestLoadingMaxRetry: 3,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingMaxRetry: 3,
-        levelLoadingRetryDelay: 500,
+        // 错误恢复配置(直播流刚启动时可能没有切片,需要更多重试)
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetry: 10,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry: 10,
+        levelLoadingRetryDelay: 1000,
       });
 
       hls.loadSource(hlsUrl);
@@ -912,25 +923,55 @@
     // ===== WebRTC WHEP =====
     async _playWebRTC(streamId) {
       const gateway = this._gateway();
-      const pc = new RTCPeerConnection();
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
       this.pc = pc;
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
+
+      // 收到的轨道可能分多次到达,统一管理 MediaStream
+      let remoteStream = new MediaStream();
+      this.video.srcObject = remoteStream;
+
       pc.ontrack = (event) => {
-        this.video.srcObject = event.streams[0];
+        // pion/webrtc 不创建 MediaStream,event.streams 可能为空
+        // 需要手动创建 MediaStream 并添加 track
+        if (event.streams && event.streams.length > 0) {
+          remoteStream = event.streams[0];
+        } else {
+          remoteStream.addTrack(event.track);
+        }
+        this.video.srcObject = remoteStream;
         this._emit('onConnected', { mode: 'webrtc' });
         this.video.play().catch(() => {});
       };
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+
+      // 等待 ICE 收集完成(非 trickle ICE,WHEP 需要完整 SDP)
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        const checkState = () => {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', checkState);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', checkState);
+        setTimeout(resolve, 3000);
+      });
+
       try {
         const resp = await fetch(`${gateway}/whep/${streamId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/sdp' },
-          body: offer.sdp,
+          body: pc.localDescription.sdp,
         });
         if (!resp.ok) {
-          this._emit('onError', `WHEP 协商失败: ${resp.status}`);
+          const errText = await resp.text().catch(() => '');
+          this._emit('onError', `WHEP 协商失败: ${resp.status} - ${errText || resp.statusText}`);
           return;
         }
         const answerSdp = await resp.text();

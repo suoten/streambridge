@@ -17,7 +17,6 @@
 - 🐯 Gitee Repository (faster for users in mainland China): <https://gitee.com/suoten/streambridge>
 
 > 🌟 **If StreamBridge helps you, please [give it a Star](https://github.com/suoten/streambridge)!**
-> 🎬 **Online Demo**: [http://demo.streambridge.example.com:8080](http://demo.streambridge.example.com:8080) (if deployed)
 
 ### 🎯 Use Cases
 

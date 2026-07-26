@@ -322,6 +322,7 @@ func (s *Session) HLSSlicer() *hls.Slicer {
 	defer s.hlsMu.Unlock()
 	if s.hlsSlicer == nil {
 		s.hlsSlicer = hls.NewSlicer(s.videoTrack, s.audioTrack, 3*time.Second)
+		s.hlsSlicer.SetStreamID(s.ID)
 	}
 	return s.hlsSlicer
 }
