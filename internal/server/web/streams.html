@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>流列表 · StreamBridge</title>
+  <link rel="stylesheet" href="/player.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎬</span>
+      <div><h1>StreamBridge</h1><p class="tagline">流列表</p></div>
+    </div>
+    <nav class="nav">
+      <a href="/">播放器</a>
+      <a href="/streams.html" class="active">流列表</a>
+      <a href="/stats.html">统计</a>
+      <a href="/api/docs">API</a>
+      <a href="/doctor">诊断</a>
+    </nav>
+  </header>
+
+  <main class="main" style="grid-template-columns: 1fr;">
+    <div class="player-card">
+      <div style="padding: 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border);">
+        <h2 style="font-size: 16px;">活跃流列表</h2>
+        <button id="btn-refresh" class="btn btn-ghost">刷新</button>
+      </div>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <thead>
+            <tr style="background: var(--bg);">
+              <th style="padding: 12px; text-align: left;">流 ID</th>
+              <th style="padding: 12px; text-align: left;">源地址</th>
+              <th style="padding: 12px; text-align: left;">类型</th>
+              <th style="padding: 12px;">观看人数</th>
+              <th style="padding: 12px;">运行时长</th>
+              <th style="padding: 12px;">视频编码</th>
+              <th style="padding: 12px;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="streams-tbody">
+            <tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--text-sec);">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>StreamBridge 社区版 · MIT License</span>
+    <span id="total-info"></span>
+  </footer>
+</div>
+
+<script>
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function fmtDuration(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h' + Math.floor((s%3600)/60) + 'm';
+}
+
+async function loadStreams() {
+  const tbody = document.getElementById('streams-tbody');
+  try {
+    const resp = await fetch('/api/streams');
+    const list = await resp.json();
+    if (!list || list.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--text-sec);">暂无活跃流</td></tr>';
+      document.getElementById('total-info').textContent = '0 流';
+      return;
+    }
+    tbody.innerHTML = list.map(s => `
+      <tr style="border-top: 1px solid var(--border);">
+        <td style="padding: 12px;"><code style="font-size:12px; background:var(--bg); padding:2px 6px; border-radius:4px;">${s.id}</code></td>
+        <td style="padding: 12px; max-width: 400px; word-break: break-all; font-size: 12px;">${escapeHtml(s.source)}</td>
+        <td style="padding: 12px;"><span style="background: var(--primary); color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px;">${escapeHtml(s.type)}</span></td>
+        <td style="padding: 12px; text-align: center;">${s.viewers}</td>
+        <td style="padding: 12px; text-align: center;">${fmtDuration(s.uptime)}</td>
+        <td style="padding: 12px; text-align: center;">${escapeHtml(s.videoCodec || '-')}</td>
+        <td style="padding: 12px; text-align: center;">
+          <button onclick="playStream('${s.id}')" class="btn btn-primary" style="padding: 4px 12px; font-size: 12px;">播放</button>
+          <button onclick="stopStream('${s.id}')" class="btn btn-danger" style="padding: 4px 12px; font-size: 12px;">停止</button>
+        </td>
+      </tr>
+    `).join('');
+    document.getElementById('total-info').textContent = `${list.length} 流 / ${list.reduce((a,b)=>a+b.viewers,0)} 观看`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--danger);">加载失败: ${e}</td></tr>`;
+  }
+}
+
+function playStream(id) {
+  window.open(`/play?demo=0&url=ws://${location.host}/ws/${id}`, '_blank');
+}
+
+async function stopStream(id) {
+  if (!confirm('确认停止流 ' + id + '?')) return;
+  await fetch(`/api/stop?id=${id}`, { method: 'POST' });
+  loadStreams();
+}
+
+document.getElementById('btn-refresh').onclick = loadStreams;
+loadStreams();
+setInterval(loadStreams, 5000);
+</script>
+</body>
+</html>

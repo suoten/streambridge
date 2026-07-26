@@ -1,0 +1,149 @@
+# StreamBridge CI:多平台构建 + 测试 + lint
+# 触发:push 到 main/master、PR、手动
+name: Build & Test
+
+on:
+  push:
+    branches: [main, master]
+    tags-ignore: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- 1. 单元测试 + lint ----------
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Download deps
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.out
+          retention-days: 7
+
+  # ---------- 2. 多平台构建 ----------
+  build:
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            output: streambridge-linux-amd64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            output: streambridge-linux-arm64
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+            output: streambridge-darwin-amd64
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            output: streambridge-darwin-arm64
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            output: streambridge-windows-amd64.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME:-dev} -X main.commit=${GITHUB_SHA::7} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ${{ matrix.output }} ./cmd/streambridge
+
+      - name: Smoke test (Unix)
+        if: matrix.os != 'windows'
+        run: |
+          chmod +x ${{ matrix.output }}
+          ./${{ matrix.output }} version || ./${{ matrix.output }} --version || true
+
+      - name: Smoke test (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          .\\${{ matrix.output }} version
+        shell: pwsh
+        continue-on-error: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}
+          retention-days: 14
+
+  # ---------- 3. Docker 镜像构建测试 ----------
+  docker:
+    name: Docker Build
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: streambridge:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      - name: Smoke test
+        run: |
+          docker run --rm -d --name sb-ci -p 18080:8080 streambridge:ci
+          sleep 3
+          curl -fsS http://localhost:18080/api/health | grep -q '"status"'
+          docker stop sb-ci

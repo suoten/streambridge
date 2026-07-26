@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>统计面板 · StreamBridge</title>
+  <link rel="stylesheet" href="/player.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📊</span>
+      <div><h1>StreamBridge</h1><p class="tagline">实时统计</p></div>
+    </div>
+    <nav class="nav">
+      <a href="/">播放器</a>
+      <a href="/streams.html">流列表</a>
+      <a href="/stats.html" class="active">统计</a>
+      <a href="/api/docs">API</a>
+      <a href="/doctor">诊断</a>
+    </nav>
+  </header>
+
+  <main class="main" style="grid-template-columns: 1fr;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+      <div class="info-card">
+        <div style="font-size: 12px; color: var(--text-sec);">活跃流数</div>
+        <div id="stat-streams" style="font-size: 32px; font-weight: 600; color: var(--primary); margin-top: 8px;">0</div>
+      </div>
+      <div class="info-card">
+        <div style="font-size: 12px; color: var(--text-sec);">总观看人数</div>
+        <div id="stat-viewers" style="font-size: 32px; font-weight: 600; color: var(--success); margin-top: 8px;">0</div>
+      </div>
+      <div class="info-card">
+        <div style="font-size: 12px; color: var(--text-sec);">运行时长</div>
+        <div id="stat-uptime" style="font-size: 32px; font-weight: 600; color: var(--warn); margin-top: 8px;">0s</div>
+      </div>
+      <div class="info-card">
+        <div style="font-size: 12px; color: var(--text-sec);">内存占用</div>
+        <div id="stat-memory" style="font-size: 32px; font-weight: 600; color: var(--danger); margin-top: 8px;">0 MB</div>
+      </div>
+    </div>
+
+    <div class="player-card">
+      <div style="padding: 16px; border-bottom: 1px solid var(--border);">
+        <h2 style="font-size: 16px;">Prometheus 指标</h2>
+      </div>
+      <pre id="metrics" style="padding: 16px; font-size: 12px; overflow-x: auto; background: var(--bg); color: var(--text-sec);">加载中...</pre>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>StreamBridge 社区版 · MIT License</span>
+    <span id="version-info"></span>
+  </footer>
+</div>
+
+<script>
+function fmtDuration(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm';
+  return Math.floor(s/3600) + 'h' + Math.floor((s%3600)/60) + 'm';
+}
+
+async function loadStats() {
+  try {
+    const [health, metrics] = await Promise.all([
+      fetch('/api/health').then(r => r.json()),
+      fetch('/metrics').then(r => r.text())
+    ]);
+    document.getElementById('stat-streams').textContent = health.streams;
+    document.getElementById('stat-viewers').textContent = health.viewers;
+    document.getElementById('stat-uptime').textContent = fmtDuration(health.uptime);
+    document.getElementById('stat-memory').textContent = health.memory_mb.toFixed(1) + ' MB';
+    document.getElementById('version-info').textContent = health.version;
+    document.getElementById('metrics').textContent = metrics;
+  } catch (e) {
+    document.getElementById('metrics').textContent = '加载失败: ' + e;
+  }
+}
+
+loadStats();
+setInterval(loadStats, 3000);
+</script>
+</body>
+</html>

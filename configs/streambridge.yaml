@@ -1,0 +1,41 @@
+# StreamBridge 配置文件
+# 社区版零配置即可启动,首次启动向导会自动生成配置文件
+# 所有字段均可选,未配置的使用默认值
+
+# ===== 基础服务端口 =====
+server:
+  http_port: 8080          # 网页端口,一般不需要改
+  rtmp_port: 1935          # RTMP 推流端口,不用 RTMP 可忽略
+  whep_port: 1985          # WebRTC 信令端口
+  bind_addr: "0.0.0.0"     # 监听地址,0.0.0.0 表示允许局域网访问
+
+# ===== 日志 =====
+log:
+  level: info              # debug | info | warn | error
+  output: stdout           # stdout | file
+  file: "/var/log/streambridge.log"
+  max_size: 100            # 单个日志文件最大 MB
+  max_age: 7               # 日志保留天数
+
+# ===== 性能限制 =====
+performance:
+  max_streams: 500                  # 最大并发流数
+  max_viewers_per_stream: 50        # 单路流最大观看人数
+  enable_h265_transcode: false      # 是否启用 H265->H264 转码
+  transcode_max_streams: 10         # 最大并发转码路数
+
+# ===== RTP/PS 媒体接收(对接 GB28181 平台时使用) =====
+# StreamBridge 不做 SIP 信令,只接收上游平台转发的 RTP/PS 媒体流
+input:
+  rtp:
+    listen: "0.0.0.0"
+    port_range: [20000, 30000]      # RTP 媒体端口范围(告知上游平台)
+    mode: passive                   # 被动接收(由上游 INVITE 时指定端口)
+    ps_depacketize: true            # 解封装 PS 流为 H264/AAC
+
+# ===== 安全 =====
+security:
+  enable_auth: false                  # 是否启用 Token 鉴权(社区版默认关闭)
+  secret_key: "streambridge-default-key"  # 鉴权密钥(请修改为随机字符串)
+  token_expire: 3600                  # Token 有效期(秒)
+  allow_origins: ["*"]               # CORS 跨域白名单

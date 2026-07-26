@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamBridge · 流媒体网关</title>
+  <link rel="stylesheet" href="/player.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎬</span>
+      <div>
+        <h1>StreamBridge</h1>
+        <p class="tagline">全协议流媒体网关 · 让摄像头连上浏览器</p>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="active">播放器</a>
+      <a href="/streams.html">流列表</a>
+      <a href="/stats.html">统计</a>
+      <a href="/api/docs">API</a>
+      <a href="/doctor">诊断</a>
+    </nav>
+  </header>
+
+  <main class="main">
+    <section class="player-section">
+      <div class="player-card">
+        <div class="player-wrap">
+          <video id="video" autoplay muted playsinline></video>
+          <div id="overlay" class="overlay">
+            <div class="overlay-content">
+              <div class="spinner"></div>
+              <p id="overlay-text">等待播放...</p>
+            </div>
+          </div>
+          <div id="live-stats" class="live-stats"></div>
+        </div>
+        <div class="player-toolbar">
+          <div class="input-group">
+            <input id="source-url" type="text" placeholder="输入 RTSP/RTMP/RTP/文件地址..." />
+            <select id="mode-select">
+              <option value="auto">自动</option>
+              <option value="flv">WebSocket-FLV</option>
+              <option value="webrtc">WebRTC</option>
+              <option value="hls">HLS</option>
+            </select>
+            <button id="btn-play" class="btn btn-primary">播放</button>
+            <button id="btn-stop" class="btn btn-danger">停止</button>
+          </div>
+          <div class="quick-actions">
+            <button id="btn-demo" class="btn btn-ghost">▶ 播放示例流</button>
+            <button id="btn-fullscreen" class="btn btn-ghost">⛶ 全屏</button>
+            <button id="btn-snapshot" class="btn btn-ghost">📷 截图</button>
+          </div>
+        </div>
+        <div id="status-bar" class="status-bar">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">就绪</span>
+          <span class="status-meta" id="status-meta"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="info-section">
+      <div class="info-card">
+        <h3>📡 支持的输入协议</h3>
+        <ul>
+          <li><code>rtsp://</code> 网络摄像头 / NVR</li>
+          <li><code>rtmp://</code> 直播推流 / 拉流</li>
+          <li><code>rtp://0.0.0.0:20000</code> GB28181 平台转发</li>
+          <li><code>/path/file.flv</code> 录像文件回放</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <h3>🏷️ RTSP 地址速查</h3>
+        <table class="addr-table">
+          <tr><td>海康</td><td><code>rtsp://admin:pass@IP:554/Streaming/Channels/101</code></td></tr>
+          <tr><td>大华</td><td><code>rtsp://admin:pass@IP:554/cam/realmonitor?channel=1&subtype=0</code></td></tr>
+          <tr><td>宇视</td><td><code>rtsp://admin:pass@IP:554/media/video1</code></td></tr>
+        </table>
+      </div>
+      <div class="info-card">
+        <h3>📖 嵌入示例</h3>
+        <pre><code>&lt;iframe src="http://gateway:8080/play?url=rtsp://..."
+  width="640" height="360"&gt;&lt;/iframe&gt;</code></pre>
+        <pre><code>StreamBridge.play({
+  container: '#player',
+  source: 'rtsp://192.168.1.64:554/...',
+  mode: 'auto'
+});</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>StreamBridge <span id="version">v1.0.0</span> · 社区版 MIT License</span>
+    <span id="server-info"></span>
+  </footer>
+</div>
+
+<script src="/hls.min.js?v=2"></script>
+<script src="/flv-demuxer.js?v=2"></script>
+<script src="/streambridge.js?v=2"></script>
+<script>
+const $ = id => document.getElementById(id);
+const video = $('video');
+const overlay = $('overlay');
+const overlayText = $('overlay-text');
+const statusText = $('status-text');
+const statusMeta = $('status-meta');
+const statusDot = $('status-dot');
+const liveStats = $('live-stats');
+let currentPlayer = null;
+window.currentPlayer = null;
+
+function setStatus(state, text, meta) {
+  statusDot.className = 'status-dot ' + state;
+  statusText.textContent = text;
+  statusMeta.textContent = meta || '';
+}
+function showOverlay(text) {
+  overlay.style.display = 'flex';
+  overlayText.textContent = text;
+}
+function hideOverlay() {
+  overlay.style.display = 'none';
+}
+
+async function playSource(url, mode) {
+  if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; window.currentPlayer = null; }
+  if (!url) { alert('请输入流地址'); return; }
+  showOverlay('连接中...');
+  setStatus('connecting', '连接中', url);
+  try {
+    currentPlayer = StreamBridge.play({
+      container: '#video',
+      source: url,
+      mode: mode || 'auto',
+      autoplay: true,
+      muted: true,
+      onConnected: () => {
+        hideOverlay();
+        setStatus('ok', '已连接', url);
+      },
+      onStats: (s) => {
+        const parts = [];
+        if (s.videoFps) parts.push(`${s.videoFps}fps`);
+        if (s.bitrateKbps) parts.push(`${s.bitrateKbps}kbps`);
+        if (s.latency != null) parts.push(`延迟${s.latency.toFixed(1)}s`);
+        if (s.playbackRate && s.playbackRate !== 1) parts.push(`${s.playbackRate}x`);
+        if (s.queueDepth > 0) parts.push(`队列${s.queueDepth}`);
+        if (s.resolution) parts.push(s.resolution);
+        if (s.viewers) parts.push(`${s.viewers}人观看`);
+        statusMeta.textContent = parts.join(' · ');
+        // 叠加层:显示关键指标
+        const overlayParts = [];
+        if (s.videoFps) overlayParts.push(`FPS: ${s.videoFps}`);
+        if (s.bitrateKbps) overlayParts.push(`${s.bitrateKbps}kbps`);
+        if (s.latency != null) overlayParts.push(`Latency: ${s.latency.toFixed(2)}s`);
+        if (s.playbackRate && s.playbackRate !== 1) overlayParts.push(`Rate: ${s.playbackRate}x`);
+        liveStats.textContent = overlayParts.join(' | ');
+        liveStats.style.display = overlayParts.length > 0 ? 'block' : 'none';
+      },
+      onError: (e) => {
+        showOverlay('错误: ' + e);
+        setStatus('error', '错误', e);
+      }
+    });
+    window.currentPlayer = currentPlayer;
+  } catch (e) {
+    showOverlay('错误: ' + e.message);
+    setStatus('error', '错误', e.message);
+  }
+}
+
+$('btn-play').onclick = () => {
+  const url = $('source-url').value.trim();
+  const mode = $('mode-select').value;
+  playSource(url, mode);
+};
+
+$('btn-stop').onclick = () => {
+  if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; }
+  video.src = '';
+  liveStats.style.display = 'none';
+  showOverlay('已停止');
+  setStatus('idle', '已停止');
+};
+
+$('btn-demo').onclick = () => {
+  $('source-url').value = '';
+  playSource('demo', 'flv');
+};
+
+$('btn-fullscreen').onclick = () => {
+  if (video.requestFullscreen) video.requestFullscreen();
+};
+
+$('btn-snapshot').onclick = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'streambridge-' + Date.now() + '.png';
+  a.click();
+};
+
+// URL 参数自动播放
+const params = new URLSearchParams(location.search);
+const urlParam = params.get('url');
+const demoParam = params.get('demo');
+if (demoParam === '1') {
+  playSource('demo', 'flv');
+} else if (urlParam) {
+  $('source-url').value = urlParam;
+  playSource(urlParam, params.get('mode') || 'auto');
+}
+
+// 加载版本与服务信息
+fetch('/api/health').then(r => r.json()).then(d => {
+  $('version').textContent = d.version;
+  $('server-info').textContent = `↑ ${d.streams} 流 / ${d.viewers} 观看 · ${d.memory_mb.toFixed(1)}MB`;
+}).catch(() => {});
+</script>
+</body>
+</html>

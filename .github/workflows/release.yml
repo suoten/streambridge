@@ -1,0 +1,254 @@
+# StreamBridge Release:打 tag 自动构建全平台二进制 + Docker 镜像并发布 GitHub Release
+# 触发:推送 v*.*.* 格式的 tag(如 v1.0.0、v1.1.0-rc1)
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 发布 Release 需要
+  packages: write   # 推送 GHCR 需要
+
+jobs:
+  # ---------- 1. 生成 changelog ----------
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: meta
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "📝 Releasing $TAG (version $VERSION)"
+
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configuration: |
+            {
+              "template": "## 🚀 What's Changed\n\n{{#categories}}\n### {{title}}\n{{#entries}}\n- {{#breaking}}💥 {{/breaking}}{{#pr_title}}{{pr_title}}{{/pr_title}}{{#pr_number}} (#{{pr_number}}){{/pr_number}}\n{{/entries}}\n{{/categories}}\n\n**Full Changelog**: https://github.com/${{ github.repository }}/compare/{{fromTag}}...{{toTag}}",
+              "categories": [
+                { "title": "✨ New Features", "labels": ["feature", "enhancement"] },
+                { "title": "🐛 Bug Fixes", "labels": ["bug", "fix"] },
+                { "title": "📚 Documentation", "labels": ["docs", "documentation"] },
+                { "title": "♻️ Refactor", "labels": ["refactor"] },
+                { "title": "⚙️ Dependencies", "labels": ["dependencies"] },
+                { "title": "🧹 Misc", "labels": ["chore", "ci"] }
+              ]
+            }
+          failOnError: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------- 2. 多平台构建 ----------
+  build:
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            output: streambridge-linux-amd64
+            archive: streambridge-linux-amd64.tar.gz
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            output: streambridge-linux-arm64
+            archive: streambridge-linux-arm64.tar.gz
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+            output: streambridge-darwin-amd64
+            archive: streambridge-darwin-amd64.tar.gz
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            output: streambridge-darwin-arm64
+            archive: streambridge-darwin-arm64.tar.gz
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            output: streambridge-windows-amd64.exe
+            archive: streambridge-windows-amd64.zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.version }} -X main.commit=${GITHUB_SHA::7} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ${{ matrix.output }} ./cmd/streambridge
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows'
+        run: |
+          chmod +x ${{ matrix.output }}
+          cp configs/streambridge.yaml ./config.example.yaml
+          cp LICENSE ./LICENSE
+          tar -czf ${{ matrix.archive }} ${{ matrix.output }} config.example.yaml LICENSE
+          sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          Copy-Item configs/streambridge.yaml config.example.yaml
+          Compress-Archive -Path ${{ matrix.output }}, config.example.yaml, LICENSE -DestinationPath ${{ matrix.archive }}
+          $hash = (Get-FileHash ${{ matrix.archive }} -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.archive }}" | Out-File -Encoding ascii ${{ matrix.archive }}.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}-release
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
+          retention-days: 7
+
+  # ---------- 3. Docker 镜像构建并推送 GHCR ----------
+  docker:
+    name: Docker Image
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+            docker.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=StreamBridge
+            org.opencontainers.image.description=Single-binary streaming gateway: RTSP/RTMP/GB28181 → WebSocket-FLV/HLS/WebRTC
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------- 4. 发布 GitHub Release ----------
+  release:
+    name: Publish Release
+    needs: [prepare, build, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: streambridge-*-release
+          merge-multiple: true
+          path: release-assets
+
+      - name: List assets
+        run: ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: 🚀 ${{ github.ref_name }}
+          body: |
+            # StreamBridge ${{ github.ref_name }}
+
+            ## 📦 下载 / Downloads
+
+            | 文件 / File | 说明 / Description |
+            |------------|---------------------|
+            | `streambridge-linux-amd64.tar.gz` | Linux x86_64 |
+            | `streambridge-linux-arm64.tar.gz` | Linux ARM64 |
+            | `streambridge-darwin-amd64.tar.gz` | macOS Intel |
+            | `streambridge-darwin-arm64.tar.gz` | macOS Apple Silicon |
+            | `streambridge-windows-amd64.zip` | Windows x86_64 |
+            | `*.sha256` | SHA256 校验文件 / SHA256 checksum |
+
+            ## 🐳 Docker
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}
+            docker run -d -p 8080:8080 ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}
+            ```
+
+            ## 📝 Changelog
+
+            ${{ needs.prepare.outputs.changelog }}
+
+            ## ⚙️ 升级 / Upgrade
+
+            ```bash
+            # 二进制
+            curl -L -o streambridge https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/streambridge-linux-amd64.tar.gz
+            tar -xzf streambridge-linux-amd64.tar.gz
+
+            # Docker
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.version }}
+            ```
+
+            配置文件向后兼容,直接替换二进制 / 重启容器即可。
+            Config is backward compatible — just replace the binary or restart the container.
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.sha256
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: true

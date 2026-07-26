@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 提问与讨论 / Discussions & Questions
+    url: https://github.com/suoten/streambridge/discussions
+    about: 使用问题、最佳实践、想法讨论请到 Discussions / For usage questions and ideas, use Discussions
+  - name: 📖 文档 / Documentation
+    url: https://github.com/suoten/streambridge#readme
+    about: 查阅 README 与配置示例 / Read README and config examples first
+  - name: 🐛 Gitee 镜像 / Gitee Mirror
+    url: https://gitee.com/suoten/streambridge
+    about: 国内用户可访问 Gitee 镜像 / China users can use Gitee mirror

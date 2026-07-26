@@ -1,0 +1,74 @@
+# ===== Go 构建产物 =====
+bin/
+vendor/
+*.exe
+*.exe~
+*.test
+*.out
+streambridge
+streambridge.exe
+streambridge-linux-*
+streambridge-darwin-*
+streambridge-windows-*
+
+# ===== 内部文档(不公开推送) =====
+# 产品规划、商业模式、路线图等内部文档
+StreamBridge_产品规划文档*.md
+*规划文档*.md
+*路线图*.md
+*商业*.md
+docs/internal/
+*.draft.md
+
+# ===== 运行时数据 =====
+recordings/
+logs/
+*.log
+hls_cache/
+*.ts
+*.m3u8
+!sdk/**/*.m3u8
+
+# ===== 环境与密钥 =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!configs/*.pem.example
+secrets/
+config.local.yaml
+config.production.yaml
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.code-workspace
+.history/
+*.swp
+*.swo
+*~
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# ===== Office / WPS 临时文件 =====
+~$*
+*.tmp
+*.bak
+
+# ===== Node.js(如果以后加前端工具链) =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+.cache/
+
+# ===== Docker 运行时 =====
+docker-data/
