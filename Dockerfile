@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     -o /out/streambridge ./cmd/streambridge
 
 # 运行阶段: 最小镜像
-FROM alpine:3.19
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 1000 streambridge
