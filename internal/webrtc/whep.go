@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
+	pionmedia "github.com/pion/webrtc/v3/pkg/media"
 
 	"github.com/streambridge/streambridge/internal/media"
 	"github.com/streambridge/streambridge/internal/session"
@@ -77,6 +77,7 @@ func (s *Server) HandleWHEP(w http.ResponseWriter, r *http.Request) {
 
 	answer, err := s.createPeerConnection(sess, string(body))
 	if err != nil {
+		s.logger.Printf("[WHEP] 创建 PeerConnection 失败: %v", err)
 		http.Error(w, "创建 PeerConnection 失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -134,12 +135,15 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 		return "", fmt.Errorf("创建 PC 失败: %w", err)
 	}
 
-	// 创建视频轨道(H264)
-	codec := webrtc.RTPCodecCapability{
-		MimeType:  webrtc.MimeTypeH264,
-		ClockRate: 90000,
-	}
-	localVideoTrack, err := webrtc.NewTrackLocalStaticRTP(codec, "video", "streambridge")
+	// 使用 TrackLocalStaticSample,让 pion 自动处理 H264 RTP 打包
+	// (FU-A 分片、序列号管理、Marker 位等),避免手动打包的 bug
+	localVideoTrack, err := webrtc.NewTrackLocalStaticSample(
+		webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeH264,
+			ClockRate: 90000,
+		},
+		"video", "streambridge",
+	)
 	if err != nil {
 		pc.Close()
 		return "", fmt.Errorf("创建视频轨道失败: %w", err)
@@ -150,9 +154,10 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 	}
 
 	// 创建音频轨道(仅当有音频时)
-	var localAudioTrack *webrtc.TrackLocalStaticRTP
+	// 注意:当前不支持 AAC→Opus 转码,音频轨道仅用于 SDP 协商
+	var localAudioTrack *webrtc.TrackLocalStaticSample
 	if sess.AudioTrack() != nil {
-		localAudioTrack, err = webrtc.NewTrackLocalStaticRTP(
+		localAudioTrack, err = webrtc.NewTrackLocalStaticSample(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
 			"audio", "streambridge",
 		)
@@ -188,7 +193,7 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 		s.logger.Printf("[WHEP] ICE 收集超时(5s),继续返回 Answer")
 	}
 
-	// 订阅流并转发 RTP
+	// 订阅流并转发
 	ctx, cancel := context.WithCancel(context.Background())
 	peerID := fmt.Sprintf("webrtc_%d", time.Now().UnixNano())
 	viewer := &session.Viewer{
@@ -203,8 +208,11 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 	s.peers[peerID] = &PeerConnection{pcInstance: pc, cancel: cancel}
 	s.mu.Unlock()
 
+	s.logger.Printf("[WHEP] PeerConnection 已创建, peerID=%s, streamId=%s", peerID, sess.ID)
+
 	// 连接状态变化时清理资源
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		s.logger.Printf("[WHEP] 连接状态变化: %s, peerID=%s", state, peerID)
 		if state == webrtc.PeerConnectionStateClosed || state == webrtc.PeerConnectionStateFailed {
 			unsub()
 			cancel()
@@ -215,12 +223,14 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 		}
 	})
 
-	// RTP 转发器
-	rtpForwarder := NewRTPForwarder(localVideoTrack, localAudioTrack)
+	// 帧转发器
+	sampleForwarder := NewSampleForwarder(localVideoTrack, localAudioTrack, s.logger)
 
 	go func() {
 		defer unsub()
 		defer cancel()
+		var lastPTS time.Duration
+		firstFrame := true
 		for {
 			select {
 			case <-ctx.Done():
@@ -231,7 +241,17 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 					pc.Close()
 					return
 				}
-				rtpForwarder.Forward(f)
+				if firstFrame {
+					lastPTS = f.PTS
+					firstFrame = false
+				}
+				// 计算帧间间隔作为 sample duration
+				dur := f.PTS - lastPTS
+				if dur <= 0 {
+					dur = time.Millisecond * 33 // 默认 30fps
+				}
+				lastPTS = f.PTS
+				sampleForwarder.Forward(f, dur)
 			}
 		}
 	}()
@@ -239,149 +259,59 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 	return pc.LocalDescription().SDP, nil
 }
 
-// forwardFrame 转发帧为 RTP 包
-func (s *Server) forwardFrame(videoTrack, audioTrack *webrtc.TrackLocalStaticRTP, f *media.Frame) {
-	if f.IsVideo() && videoTrack != nil {
-		// 简化:把 NALU 封装为 RTP 包
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				PayloadType:    96,
-				SequenceNumber: uint16(f.DTS.Milliseconds() / 40),
-				Timestamp:      uint32(f.DTS.Microseconds() * 90),
-			},
-			Payload: f.Payload,
-		}
-		videoTrack.WriteRTP(pkt)
-	}
+// SampleForwarder 将 media.Frame 转为 pion Sample 并写入 TrackLocalStaticSample
+type SampleForwarder struct {
+	videoTrack *webrtc.TrackLocalStaticSample
+	audioTrack *webrtc.TrackLocalStaticSample
+	logger     *log.Logger
+	frameCount uint64
 }
 
-// RTPForwarder 将 media.Frame 转为 RTP 包并发送到 WebRTC 轨道
-type RTPForwarder struct {
-	videoTrack *webrtc.TrackLocalStaticRTP
-	audioTrack *webrtc.TrackLocalStaticRTP
-	videoSeq   uint16
-	audioSeq   uint16
-	videoTS    uint32 // 视频时间戳基准(90kHz)
-	audioTS    uint32 // 音频时间戳基准(48kHz)
-	mtu        int
-}
-
-// NewRTPForwarder 创建 RTP 转发器
-func NewRTPForwarder(video, audio *webrtc.TrackLocalStaticRTP) *RTPForwarder {
-	return &RTPForwarder{
+// NewSampleForwarder 创建 Sample 转发器
+func NewSampleForwarder(video, audio *webrtc.TrackLocalStaticSample, logger *log.Logger) *SampleForwarder {
+	return &SampleForwarder{
 		videoTrack: video,
 		audioTrack: audio,
-		mtu:        1200, // WebRTC MTU (留余量给 IP/UDP/RTP 头)
+		logger:     logger,
 	}
 }
 
 // Forward 转发一帧
-func (rf *RTPForwarder) Forward(f *media.Frame) {
-	if f.IsVideo() && rf.videoTrack != nil {
-		rf.forwardVideo(f)
+func (sf *SampleForwarder) Forward(f *media.Frame, dur time.Duration) {
+	if f.IsVideo() && sf.videoTrack != nil {
+		sf.forwardVideo(f, dur)
 	}
 	// 音频转发暂不支持(AAC→Opus 需要转码,社区版略过)
 }
 
-// forwardVideo 将 H264 帧转为 RTP 包
-func (rf *RTPForwarder) forwardVideo(f *media.Frame) {
-	// 计算 RTP 时间戳(90kHz 时钟)
-	ts := uint32(f.DTS.Microseconds() * 90 / 1000)
-
-	// 拆分 NALU(AnnexB 格式)
-	nalus := media.H264SplitNALUs(f.Payload)
-	if len(nalus) == 0 {
+// forwardVideo 将 H264 帧写入 TrackLocalStaticSample
+// pion 的 H264 payloader 会自动处理:
+// - AnnexB NALU 拆分
+// - 单包/FU-A 模式选择
+// - 序列号管理
+// - Marker 位设置
+func (sf *SampleForwarder) forwardVideo(f *media.Frame, dur time.Duration) {
+	if sf.videoTrack == nil {
 		return
 	}
 
-	// 只在最后一个 NALU 上设置 Marker 位(表示一帧结束)
-	for i, nalu := range nalus {
-		rf.videoSeq++
-		isLast := i == len(nalus)-1
-		rf.sendNALU(nalu, ts, rf.videoSeq, isLast)
+	// 帧数据已经是 AnnexB 格式(含 00 00 00 01 起始码)
+	// pion 的 H264 payloader 接受 AnnexB 格式并自动拆分 NALU
+	sample := pionmedia.Sample{
+		Data:     f.Payload,
+		Duration: dur,
 	}
-}
 
-// sendNALU 发送一个 NALU,根据大小选择打包模式
-func (rf *RTPForwarder) sendNALU(nalu []byte, ts uint32, seq uint16, isLast bool) {
-	if len(nalu) == 0 {
+	if err := sf.videoTrack.WriteSample(sample); err != nil {
+		// 写入错误通常是连接已关闭,忽略即可
 		return
 	}
 
-	// 小 NALU:单包模式
-	if len(nalu) <= rf.mtu {
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				PayloadType:    96,
-				SequenceNumber: seq,
-				Timestamp:      ts,
-				Marker:         isLast, // 只在帧的最后一个 NALU 上设置 Marker
-			},
-			Payload: nalu,
+	sf.frameCount++
+	if sf.frameCount%100 == 1 {
+		if sf.logger != nil {
+			sf.logger.Printf("[WHEP] 视频帧已转发: count=%d, keyFrame=%v, size=%d, dur=%v",
+				sf.frameCount, f.IsKeyFrame, len(f.Payload), dur)
 		}
-		if err := rf.videoTrack.WriteRTP(pkt); err != nil {
-			// 忽略写入错误(连接可能已关闭)
-		}
-		return
-	}
-
-	// 大 NALU:FU-A 分片
-	rf.sendFUAFragment(nalu, ts, seq, isLast)
-}
-
-// sendFUAFragment 将大 NALU 用 FU-A 分片发送
-// FU-A 规范(RFC 6184):
-//   FU indicator: F(1) + NRI(2) + Type(5) = 28(FU-A)
-//   FU header:    S(1) + E(1) + R(1) + Type(5,原始 NALU 类型)
-func (rf *RTPForwarder) sendFUAFragment(nalu []byte, ts uint32, baseSeq uint16, isLast bool) {
-	naluType := nalu[0] & 0x1F    // 原始 NALU 类型
-	naluNRI := nalu[0] & 0x60     // NRI 位
-
-	// FU indicator: F=0 + NRI(来自原始 NALU) + Type=28(0x1C)
-	fuIndicator := naluNRI | 0x1C
-
-	offset := 1 // 跳过 NALU header 字节
-	fragSeq := baseSeq
-
-	for offset < len(nalu) {
-		// 每个 FU-A 分片: 2 字节(indicator+header) + 数据
-		fragLen := rf.mtu - 2
-		if offset+fragLen > len(nalu) {
-			fragLen = len(nalu) - offset
-		}
-
-		// FU header: S(1bit) + E(1bit) + R(1bit,0) + Type(5bit)
-		fuHeader := byte(naluType & 0x1F)
-		isStart := offset == 1
-		isEnd := offset+fragLen >= len(nalu)
-
-		if isStart {
-			fuHeader |= 0x80 // S=1
-		}
-		if isEnd {
-			fuHeader |= 0x40 // E=1
-		}
-
-		payload := make([]byte, 2+fragLen)
-		payload[0] = fuIndicator  // FU indicator(含 NRI)
-		payload[1] = fuHeader      // FU header(S/E/Type)
-		copy(payload[2:], nalu[offset:offset+fragLen])
-
-			pkt := &rtp.Packet{
-				Header: rtp.Header{
-					Version:        2,
-					PayloadType:    96,
-					SequenceNumber: fragSeq,
-					Timestamp:      ts,
-					Marker:         isEnd && isLast, // 只在帧的最后一个分片设置 Marker
-				},
-				Payload: payload,
-			}
-		rf.videoTrack.WriteRTP(pkt)
-
-		fragSeq++
-		offset += fragLen
 	}
 }
