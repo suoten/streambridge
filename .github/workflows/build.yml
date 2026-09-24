@@ -86,11 +86,28 @@ jobs:
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
+        continue-on-error: true
+        id: build_unix
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+          echo "=== go env ==="
+          go env GOOS GOARCH CGO_ENABLED GOPATH GOMODCACHE
+          echo "=== go build ==="
+          go build -v -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+          echo "=== exit code: $? ==="
+      
+      - name: Check build result
+        if: matrix.os != 'windows'
+        run: |
+          if [ ! -f "${{ matrix.output }}" ]; then
+            echo "ERROR: Output file ${{ matrix.output }} not found!"
+            ls -la
+            exit 1
+          fi
+          echo "Build successful: ${{ matrix.output }}"
+          ls -la ${{ matrix.output }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
