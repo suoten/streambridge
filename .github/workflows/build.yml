@@ -92,6 +92,8 @@ jobs:
 
       - name: Download deps
         run: go mod download
+        env:
+          GOPROXY: https://proxy.golang.org,direct
 
       - name: Prepare version info (Unix)
         if: matrix.os != 'windows'
@@ -113,7 +115,10 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: go build -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+        run: |
+          set -x
+          go env GOOS GOARCH CGO_ENABLED
+          go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
