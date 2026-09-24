@@ -110,7 +110,7 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1
+        run: go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
@@ -143,7 +143,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
           push: false
           tags: streambridge:ci
           load: true
