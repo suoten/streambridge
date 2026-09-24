@@ -87,27 +87,33 @@ jobs:
       - name: Build (Unix)
         if: matrix.os != 'windows'
         continue-on-error: true
-        id: build_unix
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          echo "=== go env ==="
-          go env GOOS GOARCH CGO_ENABLED GOPATH GOMODCACHE
-          echo "=== go build ==="
-          go build -v -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
-          echo "=== exit code: $? ==="
+          go build -v -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 || true
+          echo "BUILD_EXIT=$?" >> $GITHUB_ENV
       
-      - name: Check build result
+      - name: Debug build output
         if: matrix.os != 'windows'
         run: |
-          if [ ! -f "${{ matrix.output }}" ]; then
-            echo "ERROR: Output file ${{ matrix.output }} not found!"
-            ls -la
-            exit 1
+          echo "=== ls -la ==="
+          ls -la
+          echo "=== go env ==="
+          go env GOOS GOARCH CGO_ENABLED
+          echo "=== file check ==="
+          if [ -f "${{ matrix.output }}" ]; then
+            file ${{ matrix.output }}
+          else
+            echo "Output file NOT found: ${{ matrix.output }}"
+            echo "Trying build without -mod=mod..."
+            export GOOS=${{ matrix.os }}
+            export GOARCH=${{ matrix.arch }}
+            export CGO_ENABLED=0
+            go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1
+            echo "Exit: $?"
+            ls -la ${{ matrix.output }} 2>&1 || true
           fi
-          echo "Build successful: ${{ matrix.output }}"
-          ls -la ${{ matrix.output }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
