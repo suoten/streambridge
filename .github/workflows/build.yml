@@ -91,40 +91,32 @@ jobs:
           go-version: '1.22'
           cache: true
 
-      - name: Build (Unix)
-        if: matrix.os != 'windows'
+      - name: Build
+        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          COMMIT_SHORT=${GITHUB_SHA::7}
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME:-dev} -X main.commit=${COMMIT_SHORT} -X main.date=${BUILD_TIME}" -o ${{ matrix.output }} ./cmd/streambridge
-
-      - name: Build (Windows)
-        if: matrix.os == 'windows'
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: 0
-        shell: cmd
-        run: |
-          for /f "delims=" %%i in ('powershell -Command "$env:GITHUB_SHA.Substring(0,7)"') do set COMMIT_SHORT=%%i
-          for /f "delims=" %%i in ('powershell -Command "Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'"') do set BUILD_TIME=%%i
-          go build -trimpath -ldflags "-s -w -X main.version=%GITHUB_REF_NAME:dev% -X main.commit=%COMMIT_SHORT% -X main.date=%BUILD_TIME%" -o ${{ matrix.output }} ./cmd/streambridge
+          REF_NAME="${GITHUB_REF_NAME:-dev}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${REF_NAME} -X main.commit=${SHORT_SHA} -X main.date=${BUILD_TIME}" \
+            -o "${{ matrix.output }}" \
+            ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
         run: |
           chmod +x ${{ matrix.output }}
-          ./${{ matrix.output }} version || ./${{ matrix.output }} --version || true
+          ./${{ matrix.output }} version || true
 
       - name: Smoke test (Windows)
         if: matrix.os == 'windows'
-        run: |
-          .\\${{ matrix.output }} version
         shell: pwsh
+        run: |
+          .\${{ matrix.output }} version
         continue-on-error: true
 
       - name: Upload artifact
@@ -150,10 +142,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: false
           tags: streambridge:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           load: true
 
       - name: Smoke test
