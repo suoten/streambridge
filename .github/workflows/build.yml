@@ -99,12 +99,16 @@ jobs:
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
       - name: Build
+        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-          LDFLAGS: -s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ steps.vars.outputs.short_sha }} -X main.date=${{ steps.vars.outputs.build_time }}
-        run: go build -trimpath -ldflags "${LDFLAGS}" -o ${{ matrix.output }} ./cmd/streambridge
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ steps.vars.outputs.short_sha }} -X main.date=${{ steps.vars.outputs.build_time }}" \
+            -o "${{ matrix.output }}" \
+            ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
