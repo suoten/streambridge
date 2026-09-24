@@ -5,11 +5,11 @@ vendor/
 *.exe~
 *.test
 *.out
-streambridge
-streambridge.exe
-streambridge-linux-*
-streambridge-darwin-*
-streambridge-windows-*
+/streambridge
+/streambridge.exe
+/streambridge-linux-*
+/streambridge-darwin-*
+/streambridge-windows-*
 
 # ===== 内部文档(不公开推送) =====
 # 产品规划、商业模式、路线图等内部文档
