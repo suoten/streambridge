@@ -115,10 +115,8 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: |
-          set -x
-          go env GOOS GOARCH CGO_ENABLED
-          go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1
+          GOFLAGS: -mod=mod
+        run: go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
