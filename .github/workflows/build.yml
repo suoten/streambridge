@@ -92,7 +92,7 @@ jobs:
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
 
       - name: Upload build log on failure
         if: failure() && matrix.os != 'windows'
