@@ -91,13 +91,28 @@ jobs:
           go-version: '1.22'
           cache: true
 
-      - name: Build
+      - name: Build (Unix)
+        if: matrix.os != 'windows'
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME:-dev} -X main.commit=${GITHUB_SHA::7} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ${{ matrix.output }} ./cmd/streambridge
+          COMMIT_SHORT=${GITHUB_SHA::7}
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME:-dev} -X main.commit=${COMMIT_SHORT} -X main.date=${BUILD_TIME}" -o ${{ matrix.output }} ./cmd/streambridge
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows'
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        shell: cmd
+        run: |
+          for /f "delims=" %%i in ('powershell -Command "$env:GITHUB_SHA.Substring(0,7)"') do set COMMIT_SHORT=%%i
+          for /f "delims=" %%i in ('powershell -Command "Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'"') do set BUILD_TIME=%%i
+          go build -trimpath -ldflags "-s -w -X main.version=%GITHUB_REF_NAME:dev% -X main.commit=%COMMIT_SHORT% -X main.date=%BUILD_TIME%" -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
