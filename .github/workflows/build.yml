@@ -107,7 +107,8 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
           OUTPUT: ${{ matrix.output }}
-        run: go build -trimpath -ldflags "-s -w -X main.version=$REF_NAME -X main.commit=$SHORT_SHA -X main.date=$BUILD_TIME" -o "$OUTPUT" ./cmd/streambridge
+        run: |
+          go build -trimpath -o "$OUTPUT" ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
