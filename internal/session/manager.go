@@ -168,7 +168,7 @@ func (m *Manager) Stop(streamID string) error {
 	m.mu.Unlock()
 
 	sess.cancel()
-	sess.Source.Stop()
+	_ = sess.Source.Stop()
 
 	// 关闭所有订阅者通道,使 WebSocket/HTTP-FLV 消费者退出阻塞
 	sess.subMu.Lock()
@@ -288,7 +288,7 @@ func (s *Session) Subscribe(viewer *Viewer) (<-chan *media.Frame, func()) {
 		delete(s.subscribers, ch)
 		s.subMu.Unlock()
 		// 安全关闭 channel (dispatch 可能已经关闭了它)
-		defer func() { recover() }()
+		defer func() { _ = recover() }()
 		close(ch)
 		s.viewers.Delete(viewer.ID)
 		s.viewerCount.Add(-1)

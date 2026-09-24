@@ -17,8 +17,8 @@ const playerPageTemplate = `<!DOCTYPE html>
   <video id="video" autoplay muted playsinline style="width:100%%;height:100%%;object-fit:contain"></video>
   <div id="overlay" class="overlay"><div class="overlay-content"><div class="spinner"></div><p id="overlay-text">等待播放...</p></div></div>
 </div>
-<script src="/flv-demuxer.js?v=2"></script>
-<script src="/streambridge.js?v=2"></script>
+<script src="/flv-demuxer.js?v=3"></script>
+<script src="/streambridge.js?v=3"></script>
 <script>
 var source = "%s";
 var demo = "%s";

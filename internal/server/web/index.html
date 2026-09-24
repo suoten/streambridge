@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StreamBridge · 流媒体网关</title>
-  <link rel="stylesheet" href="/player.css">
+  <link rel="stylesheet" href="/player.css?v=3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
 </head>
 <body>
@@ -29,19 +29,37 @@
   <main class="main">
     <section class="player-section">
       <div class="player-card">
-        <div class="player-wrap">
-          <video id="video" autoplay muted playsinline></video>
-          <div id="overlay" class="overlay">
-            <div class="overlay-content">
-              <div class="spinner"></div>
-              <p id="overlay-text">等待播放...</p>
+        <!-- 分屏布局容器 -->
+        <div id="grid-container" class="grid-container grid-1">
+          <div class="grid-cell active" data-cell="0">
+            <div class="cell-player-wrap">
+              <video class="cell-video" autoplay muted playsinline></video>
+              <div class="cell-overlay overlay">
+                <div class="overlay-content">
+                  <div class="spinner"></div>
+                  <p class="cell-overlay-text">等待播放...</p>
+                </div>
+              </div>
+              <div class="cell-live-stats live-stats"></div>
+              <div class="cell-label"></div>
             </div>
           </div>
-          <div id="live-stats" class="live-stats"></div>
         </div>
+
         <div class="player-toolbar">
           <div class="input-group">
             <input id="source-url" type="text" placeholder="输入 RTSP/RTMP/RTP/文件地址..." />
+            <!-- 品牌快速模板 -->
+            <div class="dropdown" id="brand-dropdown">
+              <button class="btn btn-ghost dropdown-toggle" id="btn-brand">🏷️ 品牌</button>
+              <div class="dropdown-menu" id="brand-menu">
+                <div class="brand-item" data-template="rtsp://admin:密码@IP:554/Streaming/Channels/101" data-brand="海康威视">📷 海康威视</div>
+                <div class="brand-item" data-template="rtsp://admin:密码@IP:554/cam/realmonitor?channel=1&subtype=0" data-brand="大华">📷 大华</div>
+                <div class="brand-item" data-template="rtsp://admin:密码@IP:554/media/video1" data-brand="宇视">📷 宇视</div>
+                <div class="brand-item" data-template="rtsp://admin:密码@IP:554/h264/ch1/main/av_stream" data-brand="通用">📷 通用 ONVIF</div>
+                <div class="brand-item" data-template="rtsp://admin:密码@IP:554/11" data-brand="其他">📷 其他品牌</div>
+              </div>
+            </div>
             <select id="mode-select">
               <option value="auto">自动</option>
               <option value="flv">WebSocket-FLV</option>
@@ -55,34 +73,51 @@
             <button id="btn-demo" class="btn btn-ghost">▶ 播放示例流</button>
             <button id="btn-fullscreen" class="btn btn-ghost">⛶ 全屏</button>
             <button id="btn-snapshot" class="btn btn-ghost">📷 截图</button>
+            <button id="btn-favorite" class="btn btn-ghost">⭐ 收藏</button>
+            <!-- 分屏切换 -->
+            <div class="dropdown">
+              <button class="btn btn-ghost dropdown-toggle" id="btn-layout">⊟ 分屏</button>
+              <div class="dropdown-menu" id="layout-menu">
+                <div class="layout-item" data-layout="1">🖥️ 单画面</div>
+                <div class="layout-item" data-layout="4">◰ 2×2 四画面</div>
+                <div class="layout-item" data-layout="9">⊞ 3×3 九画面</div>
+              </div>
+            </div>
           </div>
         </div>
         <div id="status-bar" class="status-bar">
           <span class="status-dot" id="status-dot"></span>
           <span id="status-text">就绪</span>
           <span class="status-meta" id="status-meta"></span>
+          <span id="transcode-status" class="transcode-badge" style="display:none">🔧 转码已启用</span>
         </div>
       </div>
     </section>
 
     <section class="info-section">
+      <!-- 收藏夹 -->
       <div class="info-card">
-        <h3>📡 支持的输入协议</h3>
-        <ul>
-          <li><code>rtsp://</code> 网络摄像头 / NVR</li>
-          <li><code>rtmp://</code> 直播推流 / 拉流</li>
-          <li><code>rtp://0.0.0.0:20000</code> GB28181 平台转发</li>
-          <li><code>/path/file.flv</code> 录像文件回放</li>
-        </ul>
+        <div class="card-header">
+          <h3>⭐ 收藏夹</h3>
+          <button id="btn-export-fav" class="btn btn-ghost btn-sm">导出</button>
+        </div>
+        <div id="favorites-list" class="stream-list">
+          <p class="empty-hint">暂无收藏,播放后点击「⭐ 收藏」按钮添加</p>
+        </div>
       </div>
+
+      <!-- 播放历史 -->
       <div class="info-card">
-        <h3>🏷️ RTSP 地址速查</h3>
-        <table class="addr-table">
-          <tr><td>海康</td><td><code>rtsp://admin:pass@IP:554/Streaming/Channels/101</code></td></tr>
-          <tr><td>大华</td><td><code>rtsp://admin:pass@IP:554/cam/realmonitor?channel=1&subtype=0</code></td></tr>
-          <tr><td>宇视</td><td><code>rtsp://admin:pass@IP:554/media/video1</code></td></tr>
-        </table>
+        <div class="card-header">
+          <h3>🕐 播放历史</h3>
+          <button id="btn-clear-history" class="btn btn-ghost btn-sm">清空</button>
+        </div>
+        <div id="history-list" class="stream-list">
+          <p class="empty-hint">暂无播放记录</p>
+        </div>
       </div>
+
+      <!-- 嵌入示例 -->
       <div class="info-card">
         <h3>📖 嵌入示例</h3>
         <pre><code>&lt;iframe src="http://gateway:8080/play?url=rtsp://..."
@@ -102,42 +137,276 @@
   </footer>
 </div>
 
-<script src="/hls.min.js?v=2"></script>
-<script src="/flv-demuxer.js?v=2"></script>
-<script src="/streambridge.js?v=2"></script>
+<!-- 首次启动向导 -->
+<div id="wizard-modal" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>👋 欢迎使用 StreamBridge</h2>
+    </div>
+    <div class="modal-body">
+      <div class="wizard-step" id="wizard-1">
+        <p>StreamBridge 可以把摄像头(RTSP/RTMP)的视频流在浏览器中直接播放。</p>
+        <p>无需安装任何插件,无需 Docker,单文件即可运行。</p>
+      </div>
+      <div class="wizard-step" id="wizard-2" style="display:none">
+        <p>🚀 <b>快速开始:</b></p>
+        <ol>
+          <li>点击「▶ 播放示例流」体验效果(无需摄像头)</li>
+          <li>在输入框粘贴你的摄像头 RTSP 地址</li>
+          <li>不知道地址?点击「🏷️ 品牌」选择摄像头品牌获取模板</li>
+          <li>点击「播放」按钮即可</li>
+        </ol>
+      </div>
+      <div class="wizard-step" id="wizard-3" style="display:none">
+        <p>💡 <b>小贴士:</b></p>
+        <ul>
+          <li>播放后可以点击「⭐ 收藏」保存地址</li>
+          <li>点击「⊟ 分屏」可以同时查看多个摄像头</li>
+          <li>H265 摄像头建议使用 HLS 模式或开启转码</li>
+          <li>遇到问题可以访问「诊断」页面排查</li>
+        </ul>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="wizard-prev" class="btn btn-ghost" style="display:none">上一步</button>
+      <span id="wizard-dots" class="wizard-dots">
+        <span class="dot active"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </span>
+      <button id="wizard-next" class="btn btn-primary">下一步</button>
+      <button id="wizard-finish" class="btn btn-primary" style="display:none">开始使用</button>
+      <label class="wizard-skip"><input type="checkbox" id="wizard-noshow"> 不再显示</label>
+    </div>
+  </div>
+</div>
+
+<script src="/hls.min.js?v=3"></script>
+<script src="/flv-demuxer.js?v=3"></script>
+<script src="/streambridge.js?v=3"></script>
 <script>
 const $ = id => document.getElementById(id);
-const video = $('video');
-const overlay = $('overlay');
-const overlayText = $('overlay-text');
-const statusText = $('status-text');
-const statusMeta = $('status-meta');
-const statusDot = $('status-dot');
-const liveStats = $('live-stats');
+const $$ = sel => document.querySelectorAll(sel);
 let currentPlayer = null;
 window.currentPlayer = null;
+let activeCell = 0; // 当前激活的分屏格子
+let layoutMode = 1; // 1=单画面 4=2x2 9=3x3
+let cellPlayers = {}; // {0: player, 1: player, ...}
+
+/* ==================== 错误信息人性化翻译 ==================== */
+function humanizeError(e) {
+  if (!e) return '未知错误';
+  const s = String(e);
+  // H265 相关
+  if (s.includes('H265') || s.includes('h265') || s.includes('HEVC'))
+    return '摄像头使用 H265 编码,浏览器不支持直接播放。建议:① 选择 HLS 模式 ② 或在服务端开启转码';
+  // MSE 相关
+  if (s.includes('MSE') || s.includes('MediaSource'))
+    return '浏览器不支持 MSE,请切换到 HLS 模式';
+  // WHEP/WebRTC 相关
+  if (s.includes('WHEP') || s.includes('WebRTC'))
+    return 'WebRTC 连接失败。建议:① 切换到 FLV 或 HLS 模式 ② 检查网络是否允许 UDP';
+  // HLS 相关
+  if (s.includes('manifestLoadError') || s.includes('levelEmptyError'))
+    return 'HLS 加载失败。可能原因:① 摄像头未连接 ② RTSP 地址错误 ③ 服务端正在准备切片,请稍等';
+  if (s.includes('HLS'))
+    return 'HLS 播放出错: ' + s;
+  // 网络相关
+  if (s.includes('network') || s.includes('Network') || s.includes('ECONNREFUSED'))
+    return '网络连接失败。请检查:① 服务是否已启动 ② IP 地址是否正确 ③ 防火墙是否放行';
+  // RTSP 相关
+  if (s.includes('RTSP') || s.includes('DESCRIBE') || s.includes('rtsp'))
+    return 'RTSP 连接失败。请检查:① 摄像头是否在线 ② 用户名密码是否正确 ③ RTSP 地址格式是否正确';
+  // 超时
+  if (s.includes('超时') || s.includes('timeout') || s.includes('Timeout'))
+    return '连接超时。请检查:① 摄像头是否在线 ② 网络是否可达 ③ 防火墙设置';
+  // 编解码器
+  if (s.includes('codec') || s.includes('Codec') || s.includes('编解码'))
+    return '视频编解码不支持: ' + s + '。建议:① 切换 HLS 模式 ② 开启转码';
+  return s;
+}
+
+/* ==================== 收藏夹管理 ==================== */
+function getFavorites() {
+  try { return JSON.parse(localStorage.getItem('sb_favorites') || '[]'); } catch { return []; }
+}
+function saveFavorites(list) {
+  localStorage.setItem('sb_favorites', JSON.stringify(list));
+  renderFavorites();
+}
+function addFavorite(url, name) {
+  const list = getFavorites();
+  if (list.some(f => f.url === url)) { alert('该地址已在收藏夹中'); return; }
+  list.unshift({ url, name: name || url.substring(0, 40), ts: Date.now() });
+  saveFavorites(list);
+}
+function removeFavorite(url) {
+  saveFavorites(getFavorites().filter(f => f.url !== url));
+}
+function renderFavorites() {
+  const list = getFavorites();
+  const container = $('favorites-list');
+  if (list.length === 0) {
+    container.innerHTML = '<p class="empty-hint">暂无收藏,播放后点击「⭐ 收藏」按钮添加</p>';
+    return;
+  }
+  container.innerHTML = list.map(f => `
+    <div class="stream-item">
+      <div class="stream-info" onclick="playFromList('${f.url.replace(/'/g, "\\'")}')">
+        <span class="stream-name">${escapeHtml(f.name)}</span>
+        <span class="stream-url">${escapeHtml(f.url)}</span>
+      </div>
+      <button class="btn-icon" onclick="removeFavorite('${f.url.replace(/'/g, "\\'")}');event.stopPropagation()" title="删除">✕</button>
+    </div>
+  `).join('');
+}
+
+/* ==================== 播放历史 ==================== */
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem('sb_history') || '[]'); } catch { return []; }
+}
+function addHistory(url) {
+  let list = getHistory().filter(h => h.url !== url);
+  list.unshift({ url, ts: Date.now() });
+  list = list.slice(0, 20); // 保留最近 20 条
+  localStorage.setItem('sb_history', JSON.stringify(list));
+  renderHistory();
+}
+function clearHistory() {
+  localStorage.removeItem('sb_history');
+  renderHistory();
+}
+function renderHistory() {
+  const list = getHistory();
+  const container = $('history-list');
+  if (list.length === 0) {
+    container.innerHTML = '<p class="empty-hint">暂无播放记录</p>';
+    return;
+  }
+  container.innerHTML = list.map(h => `
+    <div class="stream-item" onclick="playFromList('${h.url.replace(/'/g, "\\'")}')">
+      <div class="stream-info">
+        <span class="stream-url">${escapeHtml(h.url)}</span>
+        <span class="stream-time">${timeAgo(h.ts)}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function playFromList(url) {
+  $('source-url').value = url;
+  playSource(url, $('mode-select').value);
+}
+
+/* ==================== 品牌模板 ==================== */
+function initBrandMenu() {
+  $$('.brand-item').forEach(item => {
+    item.onclick = () => {
+      const template = item.dataset.template;
+      const brand = item.dataset.brand;
+      $('source-url').value = template;
+      $('source-url').focus();
+      // 选中密码部分方便用户替换
+      const passStart = template.indexOf(':') + 1;
+      const passEnd = template.indexOf('@');
+      if (passStart > 0 && passEnd > passStart) {
+        $('source-url').setSelectionRange(passStart, passEnd);
+      }
+      $('brand-menu').classList.remove('show');
+    };
+  });
+}
+
+/* ==================== 分屏布局 ==================== */
+function setLayout(mode) {
+  // 先销毁所有播放器
+  Object.values(cellPlayers).forEach(p => { if (p) p.destroy(); });
+  cellPlayers = {};
+  layoutMode = mode;
+  const container = $('grid-container');
+  container.className = 'grid-container grid-' + mode;
+  container.innerHTML = '';
+  const count = mode;
+  for (let i = 0; i < count; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell' + (i === 0 ? ' active' : '');
+    cell.dataset.cell = i;
+    cell.innerHTML = `
+      <div class="cell-player-wrap">
+        <video class="cell-video" autoplay muted playsinline></video>
+        <div class="cell-overlay overlay" style="display:flex">
+          <div class="overlay-content">
+            <p class="cell-overlay-text" style="color:#888">格子 ${i+1} · 点击输入地址后播放</p>
+          </div>
+        </div>
+        <div class="cell-live-stats live-stats"></div>
+        <div class="cell-label">格子 ${i+1}</div>
+      </div>
+    `;
+    cell.onclick = () => selectCell(i);
+    container.appendChild(cell);
+  }
+  activeCell = 0;
+  // 隐藏布局菜单
+  $('layout-menu').classList.remove('show');
+}
+
+function selectCell(idx) {
+  $$('.grid-cell').forEach((c, i) => {
+    c.classList.toggle('active', i === idx);
+  });
+  activeCell = idx;
+}
+
+/* ==================== 播放逻辑 ==================== */
+function getActiveVideo() {
+  const cell = $$('.grid-cell')[activeCell];
+  return cell ? cell.querySelector('video') : null;
+}
+function getActiveOverlay() {
+  const cell = $$('.grid-cell')[activeCell];
+  return cell ? cell.querySelector('.cell-overlay') : null;
+}
+function getActiveOverlayText() {
+  const cell = $$('.grid-cell')[activeCell];
+  return cell ? cell.querySelector('.cell-overlay-text') : null;
+}
+function getActiveLiveStats() {
+  const cell = $$('.grid-cell')[activeCell];
+  return cell ? cell.querySelector('.cell-live-stats') : null;
+}
 
 function setStatus(state, text, meta) {
-  statusDot.className = 'status-dot ' + state;
-  statusText.textContent = text;
-  statusMeta.textContent = meta || '';
+  $('status-dot').className = 'status-dot ' + state;
+  $('status-text').textContent = text;
+  $('status-meta').textContent = meta || '';
 }
 function showOverlay(text) {
-  overlay.style.display = 'flex';
-  overlayText.textContent = text;
+  const ov = getActiveOverlay();
+  const ot = getActiveOverlayText();
+  if (ov) ov.style.display = 'flex';
+  if (ot) ot.textContent = text;
 }
 function hideOverlay() {
-  overlay.style.display = 'none';
+  const ov = getActiveOverlay();
+  if (ov) ov.style.display = 'none';
 }
 
 async function playSource(url, mode) {
-  if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; window.currentPlayer = null; }
+  // 销毁当前格子的播放器
+  if (cellPlayers[activeCell]) { cellPlayers[activeCell].destroy(); delete cellPlayers[activeCell]; }
   if (!url) { alert('请输入流地址'); return; }
+  // 如果是 demo 流,只在单画面模式播放
+  const videoEl = getActiveVideo();
+  if (!videoEl) return;
+
   showOverlay('连接中...');
   setStatus('connecting', '连接中', url);
+  addHistory(url);
+
   try {
-    currentPlayer = StreamBridge.play({
-      container: '#video',
+    const player = StreamBridge.play({
+      container: videoEl,
       source: url,
       mode: mode || 'auto',
       autoplay: true,
@@ -151,32 +420,36 @@ async function playSource(url, mode) {
         if (s.videoFps) parts.push(`${s.videoFps}fps`);
         if (s.bitrateKbps) parts.push(`${s.bitrateKbps}kbps`);
         if (s.latency != null) parts.push(`延迟${s.latency.toFixed(1)}s`);
-        if (s.playbackRate && s.playbackRate !== 1) parts.push(`${s.playbackRate}x`);
-        if (s.queueDepth > 0) parts.push(`队列${s.queueDepth}`);
         if (s.resolution) parts.push(s.resolution);
-        if (s.viewers) parts.push(`${s.viewers}人观看`);
-        statusMeta.textContent = parts.join(' · ');
-        // 叠加层:显示关键指标
-        const overlayParts = [];
-        if (s.videoFps) overlayParts.push(`FPS: ${s.videoFps}`);
-        if (s.bitrateKbps) overlayParts.push(`${s.bitrateKbps}kbps`);
-        if (s.latency != null) overlayParts.push(`Latency: ${s.latency.toFixed(2)}s`);
-        if (s.playbackRate && s.playbackRate !== 1) overlayParts.push(`Rate: ${s.playbackRate}x`);
-        liveStats.textContent = overlayParts.join(' | ');
-        liveStats.style.display = overlayParts.length > 0 ? 'block' : 'none';
+        $('status-meta').textContent = parts.join(' · ');
+        // 叠加层
+        const ls = getActiveLiveStats();
+        if (ls) {
+          const op = [];
+          if (s.videoFps) op.push(`FPS: ${s.videoFps}`);
+          if (s.bitrateKbps) op.push(`${s.bitrateKbps}kbps`);
+          if (s.latency != null) op.push(`Latency: ${s.latency.toFixed(2)}s`);
+          ls.textContent = op.join(' | ');
+          ls.style.display = op.length > 0 ? 'block' : 'none';
+        }
       },
       onError: (e) => {
-        showOverlay('错误: ' + e);
-        setStatus('error', '错误', e);
+        const friendly = humanizeError(e);
+        showOverlay('❌ ' + friendly);
+        setStatus('error', '错误', friendly);
       }
     });
-    window.currentPlayer = currentPlayer;
+    cellPlayers[activeCell] = player;
+    currentPlayer = player;
+    window.currentPlayer = player;
   } catch (e) {
-    showOverlay('错误: ' + e.message);
-    setStatus('error', '错误', e.message);
+    const friendly = humanizeError(e.message);
+    showOverlay('❌ ' + friendly);
+    setStatus('error', '错误', friendly);
   }
 }
 
+/* ==================== 事件绑定 ==================== */
 $('btn-play').onclick = () => {
   const url = $('source-url').value.trim();
   const mode = $('mode-select').value;
@@ -184,9 +457,10 @@ $('btn-play').onclick = () => {
 };
 
 $('btn-stop').onclick = () => {
-  if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; }
-  video.src = '';
-  liveStats.style.display = 'none';
+  if (cellPlayers[activeCell]) { cellPlayers[activeCell].destroy(); delete cellPlayers[activeCell]; }
+  const v = getActiveVideo();
+  if (v) { v.src = ''; v.srcObject = null; }
+  const ls = getActiveLiveStats(); if (ls) ls.style.display = 'none';
   showOverlay('已停止');
   setStatus('idle', '已停止');
 };
@@ -197,19 +471,128 @@ $('btn-demo').onclick = () => {
 };
 
 $('btn-fullscreen').onclick = () => {
-  if (video.requestFullscreen) video.requestFullscreen();
+  const v = getActiveVideo();
+  if (v && v.requestFullscreen) v.requestFullscreen();
 };
 
 $('btn-snapshot').onclick = () => {
+  const v = getActiveVideo();
+  if (!v || !v.videoWidth) { alert('当前无视频画面'); return; }
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.width = v.videoWidth;
+  canvas.height = v.videoHeight;
+  canvas.getContext('2d').drawImage(v, 0, 0);
   const a = document.createElement('a');
   a.href = canvas.toDataURL('image/png');
-  a.download = 'streambridge-' + Date.now() + '.png';
+  a.download = `streambridge-cell${activeCell+1}-${Date.now()}.png`;
   a.click();
 };
+
+$('btn-favorite').onclick = () => {
+  const url = $('source-url').value.trim();
+  if (!url) { alert('请先输入流地址'); return; }
+  const name = prompt('给这个地址起个名字(可选):', '');
+  addFavorite(url, name || undefined);
+};
+
+$('btn-clear-history').onclick = () => {
+  if (confirm('确定清空播放历史?')) clearHistory();
+};
+
+$('btn-export-fav').onclick = () => {
+  const data = JSON.stringify(getFavorites(), null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'streambridge-favorites.json';
+  a.click();
+};
+
+// 品牌下拉
+$('btn-brand').onclick = (e) => {
+  e.stopPropagation();
+  $('brand-menu').classList.toggle('show');
+};
+// 分屏下拉
+$('btn-layout').onclick = (e) => {
+  e.stopPropagation();
+  $('layout-menu').classList.toggle('show');
+};
+// 点击其他地方关闭下拉
+document.onclick = () => {
+  $('brand-menu').classList.remove('show');
+  $('layout-menu').classList.remove('show');
+};
+$$('.dropdown-menu').forEach(m => m.onclick = (e) => e.stopPropagation());
+
+// 分屏布局选择
+$$('.layout-item').forEach(item => {
+  item.onclick = () => {
+    const mode = parseInt(item.dataset.layout);
+    setLayout(mode);
+  };
+});
+
+// 回车播放
+$('source-url').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('btn-play').click();
+});
+
+/* ==================== 首次启动向导 ==================== */
+let wizardStep = 1;
+function showWizard() {
+  $('wizard-modal').style.display = 'flex';
+  wizardStep = 1;
+  updateWizard();
+}
+function updateWizard() {
+  for (let i = 1; i <= 3; i++) {
+    $('wizard-' + i).style.display = i === wizardStep ? 'block' : 'none';
+  }
+  $$('.wizard-dots .dot').forEach((d, i) => {
+    d.classList.toggle('active', i === wizardStep - 1);
+  });
+  $('wizard-prev').style.display = wizardStep > 1 ? 'inline-block' : 'none';
+  $('wizard-next').style.display = wizardStep < 3 ? 'inline-block' : 'none';
+  $('wizard-finish').style.display = wizardStep === 3 ? 'inline-block' : 'none';
+}
+$('wizard-next').onclick = () => { if (wizardStep < 3) { wizardStep++; updateWizard(); } };
+$('wizard-prev').onclick = () => { if (wizardStep > 1) { wizardStep--; updateWizard(); } };
+$('wizard-finish').onclick = () => {
+  if ($('wizard-noshow').checked) localStorage.setItem('sb_wizard_done', '1');
+  $('wizard-modal').style.display = 'none';
+};
+
+/* ==================== 转码状态检测 ==================== */
+function checkTranscodeStatus() {
+  fetch('/api/version').then(r => r.json()).then(d => {
+    // 检查是否有转码相关信息(通过 health API)
+    return fetch('/api/health').then(r => r.json());
+  }).then(d => {
+    if (d.transcode_enabled) {
+      $('transcode-status').style.display = 'inline-block';
+    }
+  }).catch(() => {});
+}
+
+/* ==================== 工具函数 ==================== */
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff/60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff/3600000) + '小时前';
+  return Math.floor(diff/86400000) + '天前';
+}
+
+/* ==================== 初始化 ==================== */
+initBrandMenu();
+renderFavorites();
+renderHistory();
 
 // URL 参数自动播放
 const params = new URLSearchParams(location.search);
@@ -222,11 +605,18 @@ if (demoParam === '1') {
   playSource(urlParam, params.get('mode') || 'auto');
 }
 
-// 加载版本与服务信息
+// 首次启动向导
+if (!localStorage.getItem('sb_wizard_done') && !urlParam && !demoParam) {
+  showWizard();
+}
+
+// 版本与服务信息
 fetch('/api/health').then(r => r.json()).then(d => {
   $('version').textContent = d.version;
-  $('server-info').textContent = `↑ ${d.streams} 流 / ${d.viewers} 观看 · ${d.memory_mb.toFixed(1)}MB`;
+  $('server-info').textContent = `${d.streams} 流 / ${d.viewers} 观看 · ${d.memory_mb.toFixed(1)}MB`;
 }).catch(() => {});
+
+checkTranscodeStatus();
 </script>
 </body>
 </html>

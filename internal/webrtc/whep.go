@@ -83,7 +83,7 @@ func (s *Server) HandleWHEP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/sdp")
-	w.Write([]byte(answer))
+	_, _ = w.Write([]byte(answer))
 }
 
 // createPeerConnection 创建 WebRTC 连接并协商 SDP
@@ -162,7 +162,7 @@ func (s *Server) createPeerConnection(sess *session.Session, offerSDP string) (s
 			"audio", "streambridge",
 		)
 		if err == nil {
-			pc.AddTrack(localAudioTrack)
+			_, _ = pc.AddTrack(localAudioTrack)
 		}
 	}
 

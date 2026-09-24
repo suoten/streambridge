@@ -124,7 +124,7 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.httpSrv.Shutdown(shutdownCtx)
+		_ = s.httpSrv.Shutdown(shutdownCtx)
 	}()
 	if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP 服务启动失败: %w", err)
@@ -136,13 +136,14 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]interface{}{
-		"status":   "ok",
-		"version":  s.version,
-		"uptime":   s.stats.Uptime(),
-		"streams":  s.mgr.TotalStreams(),
-		"viewers":  s.mgr.TotalViewers(),
-		"cpu":      session.CPUUsage(),
-		"memory_mb": session.MemStatsMB(),
+		"status":            "ok",
+		"version":           s.version,
+		"uptime":            s.stats.Uptime(),
+		"streams":           s.mgr.TotalStreams(),
+		"viewers":           s.mgr.TotalViewers(),
+		"cpu":               session.CPUUsage(),
+		"memory_mb":         session.MemStatsMB(),
+		"transcode_enabled": s.cfg.Performance.EnableH265Transcode,
 	})
 }
 
@@ -639,7 +640,7 @@ func (s *Server) handleHLSPlaylist(w http.ResponseWriter, r *http.Request) {
 	playlist := slicer.Playlist()
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Write(playlist)
+	_, _ = w.Write(playlist)
 }
 
 func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
@@ -665,7 +666,7 @@ func (s *Server) handleHLSSegment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // ===== WHEP =====
@@ -689,7 +690,7 @@ func (s *Server) handlePlayPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDoctorPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(doctorPageTemplate))
+	_, _ = w.Write([]byte(doctorPageTemplate))
 }
 
 // ===== 日志 =====
@@ -745,7 +746,7 @@ func (s *Server) handleJS(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // serveDemoFLV 演示流:推送 H264 测试画面(循环变色测试图案)

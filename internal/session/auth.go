@@ -57,7 +57,7 @@ func (a *Authenticator) ValidateToken(token string) (string, error) {
 
 	// 校验过期时间
 	var expTime int64
-	fmt.Sscanf(exp, "%d", &expTime)
+	_, _ = fmt.Sscanf(exp, "%d", &expTime)
 	if time.Now().Unix() > expTime {
 		return "", fmt.Errorf("token 已过期")
 	}

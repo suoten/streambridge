@@ -79,7 +79,7 @@ func (r *Receiver) run(ctx context.Context) {
 			return
 		default:
 		}
-		r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_ = r.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		n, _, err := r.conn.ReadFromUDP(buf)
 		if err != nil {
 			if !r.started.Load() {

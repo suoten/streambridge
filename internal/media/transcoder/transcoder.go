@@ -362,7 +362,7 @@ func (t *Transcoder) Close() error {
 
 	// 等待 ffmpeg 退出
 	if t.cmd != nil {
-		t.cmd.Wait()
+		_ = t.cmd.Wait()
 	}
 
 	// 等待读取 goroutine 退出
