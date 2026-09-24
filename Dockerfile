@@ -1,6 +1,9 @@
 # 多阶段构建: 编译阶段 + 运行阶段
 FROM golang:1.22-alpine AS builder
 
+# git 需要 for go mod download(某些依赖需要从 git 获取)
+RUN apk add --no-cache git
+
 WORKDIR /src
 
 # 缓存依赖
@@ -10,7 +13,7 @@ RUN go mod download
 # 拷贝源码并编译(静态链接)
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags "-s -w -X main.version=docker" \
+    go build -mod=mod -trimpath -ldflags "-s -w -X main.version=docker" \
     -o /out/streambridge ./cmd/streambridge
 
 # 运行阶段: 最小镜像
