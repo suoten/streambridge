@@ -80,9 +80,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-          cache: true
 
-      - run: go mod download
+      - name: Download deps
+        run: go mod download -x
+        env:
+          GOPROXY: https://proxy.golang.org,direct
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
@@ -90,7 +92,8 @@ jobs:
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+          export GOPROXY=https://proxy.golang.org,direct
+          go build -x -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
