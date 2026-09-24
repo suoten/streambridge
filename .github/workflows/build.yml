@@ -94,12 +94,11 @@ jobs:
         run: go mod download
 
       - name: Prepare version info
-        id: vars
         shell: bash
         run: |
-          echo "short_sha=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
-          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
-          echo "ref_name=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
+          echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          echo "REF_NAME=${GITHUB_REF_NAME:-dev}" >> $GITHUB_ENV
 
       - name: Build
         shell: bash
@@ -107,11 +106,8 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: |
-          VERSION="${{ steps.vars.outputs.ref_name }}"
-          COMMIT="${{ steps.vars.outputs.short_sha }}"
-          DATE="${{ steps.vars.outputs.build_time }}"
-          go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "${{ matrix.output }}" ./cmd/streambridge
+          OUTPUT: ${{ matrix.output }}
+        run: go build -trimpath -ldflags "-s -w -X main.version=$REF_NAME -X main.commit=$SHORT_SHA -X main.date=$BUILD_TIME" -o "$OUTPUT" ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
