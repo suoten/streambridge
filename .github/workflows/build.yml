@@ -95,10 +95,7 @@ jobs:
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
           go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge > build.log 2>&1 || true
-          echo "## Build output" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat build.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "::error::$(cat build.log)"
 
       - name: Verify build (Unix)
         if: matrix.os != 'windows'
