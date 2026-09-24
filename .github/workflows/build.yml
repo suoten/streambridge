@@ -20,33 +20,26 @@ jobs:
     name: Test & Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
           cache: true
 
-      - name: Download deps
-        run: go mod download
+      - run: go mod download
 
-      - name: Vet
-        run: go vet ./...
+      - run: go vet ./...
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Upload coverage
+      - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ github.sha }}
           path: coverage.out
@@ -82,41 +75,25 @@ jobs:
             runner: windows-latest
             output: streambridge-windows-amd64.exe
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Download deps
-        run: go mod download
-        env:
-          GOPROXY: https://proxy.golang.org,direct
+      - run: go mod download
 
-      - name: Prepare version info (Unix)
+      - name: Build (Unix)
         if: matrix.os != 'windows'
-        run: |
-          echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
-          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
-          echo "REF_NAME=${GITHUB_REF_NAME:-dev}" >> $GITHUB_ENV
+        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
-      - name: Prepare version info (Windows)
+      - name: Build (Windows)
         if: matrix.os == 'windows'
-        shell: bash
-        run: |
-          echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
-          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
-          echo "REF_NAME=${GITHUB_REF_NAME:-dev}" >> $GITHUB_ENV
-
-      - name: Build
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-          GOFLAGS: -mod=mod
-        run: go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+        run: go build -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
@@ -127,12 +104,10 @@ jobs:
       - name: Smoke test (Windows)
         if: matrix.os == 'windows'
         shell: pwsh
-        run: |
-          .\${{ matrix.output }} version
+        run: .\${{ matrix.output }} version
         continue-on-error: true
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.output }}
           path: ${{ matrix.output }}
@@ -144,14 +119,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build (no push)
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
