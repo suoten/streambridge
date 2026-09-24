@@ -89,7 +89,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+
+      - name: Download deps
+        run: go mod download
 
       - name: Prepare version info
         id: vars
@@ -97,6 +99,7 @@ jobs:
         run: |
           echo "short_sha=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          echo "ref_name=${GITHUB_REF_NAME:-dev}" >> $GITHUB_OUTPUT
 
       - name: Build
         shell: bash
@@ -105,10 +108,10 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ steps.vars.outputs.short_sha }} -X main.date=${{ steps.vars.outputs.build_time }}" \
-            -o "${{ matrix.output }}" \
-            ./cmd/streambridge
+          VERSION="${{ steps.vars.outputs.ref_name }}"
+          COMMIT="${{ steps.vars.outputs.short_sha }}"
+          DATE="${{ steps.vars.outputs.build_time }}"
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "${{ matrix.output }}" ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
