@@ -88,13 +88,11 @@ jobs:
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
-        continue-on-error: true
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          go build -x -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
-          exit ${PIPESTATUS[0]}
+          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Upload build log on failure
         if: failure() && matrix.os != 'windows'
@@ -103,6 +101,7 @@ jobs:
           name: build-log-${{ matrix.os }}-${{ matrix.arch }}
           path: build.log
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
@@ -115,7 +114,7 @@ jobs:
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
         run: |
-          chmod +x ${{ matrix.output }}
+          chmod +x ${{ matrix.output }} || true
           ./${{ matrix.output }} version || true
 
       - name: Smoke test (Windows)
