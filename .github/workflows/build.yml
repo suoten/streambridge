@@ -88,12 +88,21 @@ jobs:
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
+        continue-on-error: true
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          export GOPROXY=https://proxy.golang.org,direct
-          go build -x -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+          go build -x -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload build log on failure
+        if: failure() && matrix.os != 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.os }}-${{ matrix.arch }}
+          path: build.log
+          retention-days: 7
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
