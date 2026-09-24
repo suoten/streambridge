@@ -1,5 +1,5 @@
 # 多阶段构建: 编译阶段 + 运行阶段
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # git 需要 for go mod download(某些依赖需要从 git 获取)
 RUN apk add --no-cache git
