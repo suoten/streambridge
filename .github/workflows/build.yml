@@ -93,6 +93,10 @@ jobs:
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
           go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
+          echo "## Build output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           test -f ${{ matrix.output }}
 
       - name: Upload build log on failure
@@ -112,7 +116,11 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 || true
+          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log || true
+          echo "## Build output (Windows)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           test -f ${{ matrix.output }}
 
       - name: Smoke test (Unix)
