@@ -91,20 +91,20 @@ jobs:
           go-version: '1.22'
           cache: true
 
-      - name: Build
+      - name: Prepare version info
+        id: vars
         shell: bash
+        run: |
+          echo "short_sha=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Build
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          REF_NAME="${GITHUB_REF_NAME:-dev}"
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${REF_NAME} -X main.commit=${SHORT_SHA} -X main.date=${BUILD_TIME}" \
-            -o "${{ matrix.output }}" \
-            ./cmd/streambridge
+          LDFLAGS: -s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ steps.vars.outputs.short_sha }} -X main.date=${{ steps.vars.outputs.build_time }}
+        run: go build -trimpath -ldflags "${LDFLAGS}" -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
