@@ -1,6 +1,6 @@
 module github.com/streambridge/streambridge
 
-go 1.22
+go 1.23
 
 require (
 	github.com/bluenviron/gortsplib/v4 v4.11.0

@@ -1,5 +1,6 @@
 # StreamBridge Makefile
 # 单二进制构建,支持交叉编译与静态资源嵌入
+# 需要 Go 1.23+
 
 VERSION ?= v1.0.0
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")

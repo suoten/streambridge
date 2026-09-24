@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
           cache: true
 
       - run: go mod download
@@ -79,41 +79,18 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          cache: false
+          go-version: '1.23'
+          cache: true
 
       - run: go mod download
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
-        continue-on-error: true
         run: |
           export GOOS=${{ matrix.os }}
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
-          go build -v -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 || true
-          echo "BUILD_EXIT=$?" >> $GITHUB_ENV
-      
-      - name: Debug build output
-        if: matrix.os != 'windows'
-        run: |
-          echo "=== ls -la ==="
-          ls -la
-          echo "=== go env ==="
-          go env GOOS GOARCH CGO_ENABLED
-          echo "=== file check ==="
-          if [ -f "${{ matrix.output }}" ]; then
-            file ${{ matrix.output }}
-          else
-            echo "Output file NOT found: ${{ matrix.output }}"
-            echo "Trying build without -mod=mod..."
-            export GOOS=${{ matrix.os }}
-            export GOARCH=${{ matrix.arch }}
-            export CGO_ENABLED=0
-            go build -v -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1
-            echo "Exit: $?"
-            ls -la ${{ matrix.output }} 2>&1 || true
-          fi
+          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
