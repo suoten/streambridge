@@ -16,6 +16,7 @@ import (
 	"github.com/streambridge/streambridge/internal/input"
 	"github.com/streambridge/streambridge/internal/media"
 	"github.com/streambridge/streambridge/internal/media/hls"
+	"github.com/streambridge/streambridge/internal/media/transcoder"
 )
 
 // 订阅者帧通道缓冲大小
@@ -60,6 +61,11 @@ type Session struct {
 	// HLS 切片器(可选,按需创建)
 	hlsSlicer *hls.Slicer
 	hlsMu     sync.RWMutex
+
+	// H265→H264 转码器(可选,当流的视频编码为 H265 且配置启用时创建)
+	transcoder    *transcoder.Transcoder
+	transcoderMu  sync.Mutex
+	isTranscoded  bool // 是否正在转码(用于 VideoTrack() 返回正确的轨道)
 
 	// 统计
 	bytesIn    atomic.Int64
@@ -124,6 +130,23 @@ func (m *Manager) Play(sourceURL string) (*Session, bool, error) {
 	video, audio := src.Tracks()
 	sess.videoTrack = video
 	sess.audioTrack = audio
+
+	// 如果是 H265 流且配置启用转码,创建转码器
+	if video != nil && video.Codec == media.CodecH265 && m.cfg.Performance.EnableH265Transcode {
+		if !transcoder.IsAvailable() {
+			log.Printf("[Session] H265 流需要转码,但 ffmpeg 未安装,将透传 H265: %s", sourceURL)
+		} else {
+			tc := transcoder.New(video)
+			if err := tc.Start(); err != nil {
+				log.Printf("[Session] 转码器启动失败,将透传 H265: %v", err)
+			} else {
+				sess.transcoder = tc
+				sess.isTranscoded = true
+				sess.videoTrack = tc.VideoTrack() // 替换为 H264 轨道
+				log.Printf("[Session] H265→H264 转码已启用: %s", sourceURL)
+			}
+		}
+	}
 
 	m.sessions[sess.ID] = sess
 
@@ -363,6 +386,11 @@ func (s *Session) cacheKeyFrame(f *media.Frame) {
 // dispatch 帧分发循环
 func (s *Session) dispatch(ctx context.Context, frameCh <-chan *media.Frame) {
 	defer func() {
+		// 关闭转码器
+		if s.transcoder != nil {
+			s.transcoder.Close()
+			s.transcoder = nil
+		}
 		// 关闭所有订阅者通道,使 WebSocket/HTTP-FLV 消费者退出阻塞
 		s.subMu.Lock()
 		for ch := range s.subscribers {
@@ -371,6 +399,12 @@ func (s *Session) dispatch(ctx context.Context, frameCh <-chan *media.Frame) {
 		}
 		s.subMu.Unlock()
 	}()
+
+	// 如果有转码器,启动转码输出读取 goroutine
+	var transcodeCh <-chan *media.Frame
+	if s.transcoder != nil {
+		transcodeCh = s.transcoder.OutputCh()
+	}
 
 	for {
 		select {
@@ -391,45 +425,70 @@ func (s *Session) dispatch(ctx context.Context, frameCh <-chan *media.Frame) {
 				s.mgr.totalBytesIn.Add(bytes)
 			}
 
-			// 缓存关键帧与 codec 参数帧(供新订阅者立即使用)
-			if f.IsVideo() && f.IsKeyFrame {
-				s.cacheKeyFrame(f)
-				s.cacheCodecFrame(f)
+			// 如果启用转码,将 H265 视频帧写入转码器,跳过直接分发
+			if s.transcoder != nil && f.IsVideo() {
+				if err := s.transcoder.WriteFrame(f); err != nil {
+					log.Printf("[Transcoder] 写入帧失败: %v", err)
+				}
+				continue
 			}
 
-			// 写入 HLS 切片器(如果已创建)
-			if s.HasHLSSlicer() {
-				if _, err := s.HLSSlicer().WriteFrame(f); err != nil {
-					log.Printf("[HLS] 切片错误: %v", err)
-				}
-			}
+			// 非转码模式:直接处理帧
+			s.distributeFrame(f)
 
-			// 分发给所有订阅者
-			s.subMu.RLock()
-			for ch := range s.subscribers {
-				select {
-				case ch <- f:
-				default:
-					// 订阅者消费慢,丢帧(关键帧不能丢,强制发送)
-					if f.IsVideo() && f.IsKeyFrame {
-						// 关键帧:非阻塞尝试清除一个旧帧后重试
-						select {
-						case <-ch:
-						default:
-						}
-						select {
-						case ch <- f:
-						default:
-						}
-					}
-				}
+		case f, ok := <-transcodeCh:
+			// 从转码器读取 H264 帧
+			if !ok {
+				// 转码器关闭
+				return
 			}
-			s.subMu.RUnlock()
+			if f == nil || f.Payload == nil {
+				continue
+			}
+			// 分发转码后的 H264 帧
+			s.distributeFrame(f)
 		}
 	}
 }
 
 // generateStreamID 生成流 ID
+// distributeFrame 分发帧到订阅者和 HLS 切片器
+func (s *Session) distributeFrame(f *media.Frame) {
+	// 缓存关键帧与 codec 参数帧(供新订阅者立即使用)
+	if f.IsVideo() && f.IsKeyFrame {
+		s.cacheKeyFrame(f)
+		s.cacheCodecFrame(f)
+	}
+
+	// 写入 HLS 切片器(如果已创建)
+	if s.HasHLSSlicer() {
+		if _, err := s.HLSSlicer().WriteFrame(f); err != nil {
+			log.Printf("[HLS] 切片错误: %v", err)
+		}
+	}
+
+	// 分发给所有订阅者
+	s.subMu.RLock()
+	for ch := range s.subscribers {
+		select {
+		case ch <- f:
+		default:
+			// 订阅者消费慢,丢帧(关键帧不能丢,强制发送)
+			if f.IsVideo() && f.IsKeyFrame {
+				select {
+				case <-ch:
+				default:
+				}
+				select {
+				case ch <- f:
+				default:
+				}
+			}
+		}
+	}
+	s.subMu.RUnlock()
+}
+
 func generateStreamID() string {
 	id := uuid.New().String()
 	if len(id) > 12 {

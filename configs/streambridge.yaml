@@ -21,8 +21,8 @@ log:
 performance:
   max_streams: 500                  # 最大并发流数
   max_viewers_per_stream: 50        # 单路流最大观看人数
-  enable_h265_transcode: false      # 是否启用 H265->H264 转码
-  transcode_max_streams: 10         # 最大并发转码路数
+  enable_h265_transcode: false      # 启用 H265→H264 转码(需要安装 ffmpeg)
+  transcode_max_streams: 10         # 最大并发转码路数(超过则透传 H265)
 
 # ===== RTP/PS 媒体接收(对接 GB28181 平台时使用) =====
 # StreamBridge 不做 SIP 信令,只接收上游平台转发的 RTP/PS 媒体流

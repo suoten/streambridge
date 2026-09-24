@@ -46,7 +46,7 @@ StreamBridge 把工业/安防摄像头(RTSP/RTMP/RTP/PS)的视频流,转换为�
 - 📦 **单文件部署**:无 Docker / FFmpeg / ZLMediaKit 依赖,1C1G 服务器可跑 20+ 路 1080P
 - 🔄 **全协议输入**:RTSP / RTMP / RTP/PS / MP4 文件 / HTTP-FLV / HLS
 - 📺 **浏览器友好**:WebSocket-FLV(主推) / HLS / WebRTC WHEP 三种输出
-- 🎥 **H265 兼容**:内置 H265→H264 软件转码,解决浏览器 H265 不兼容
+- 🎥 **H265 兼容**:H265→H264 软件转码(需安装 ffmpeg),解决浏览器 H265 不兼容
 - 📱 **全平台 SDK**:JavaScript / 微信小程序 / Android / iOS,社区版全部免费
 - 🌐 **跨平台**:Windows / Linux / macOS / Docker / K8s 全平台支持
 - 🔓 **永久免费**:MIT 协议,可商用,无功能限制
