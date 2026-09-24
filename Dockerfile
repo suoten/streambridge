@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -mod=mod -trimpath -ldflags "-s -w -X main.version=docker" \
-    -o /out/streambridge ./cmd/streambridge
+    -o /out/streambridge ./cmd/streambridge 2>&1
 
 # 运行阶段: 最小镜像
 FROM alpine:3.19

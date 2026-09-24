@@ -105,11 +105,12 @@ jobs:
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
+        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+        run: go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
