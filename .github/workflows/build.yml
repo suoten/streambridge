@@ -93,7 +93,15 @@ jobs:
       - name: Download deps
         run: go mod download
 
-      - name: Prepare version info
+      - name: Prepare version info (Unix)
+        if: matrix.os != 'windows'
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          echo "REF_NAME=${GITHUB_REF_NAME:-dev}" >> $GITHUB_ENV
+
+      - name: Prepare version info (Windows)
+        if: matrix.os == 'windows'
         shell: bash
         run: |
           echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
@@ -101,14 +109,11 @@ jobs:
           echo "REF_NAME=${GITHUB_REF_NAME:-dev}" >> $GITHUB_ENV
 
       - name: Build
-        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-          OUTPUT: ${{ matrix.output }}
-        run: |
-          go build -trimpath -o "$OUTPUT" ./cmd/streambridge
+        run: go build -trimpath -o ${{ matrix.output }} ./cmd/streambridge
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
