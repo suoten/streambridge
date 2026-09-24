@@ -21,7 +21,6 @@ type Player struct {
 	videoTrack *media.Track
 	audioTrack *media.Track
 	started    atomic.Bool
-	loop       bool
 	startTime  time.Time
 }
 

@@ -37,7 +37,7 @@ func (c *AACConfig) EncodeADTS(payload []byte) ([]byte, error) {
 	// ID 1 bit(0=MPEG4) + layer 2 bits(00) + protection_absent 1 bit(1)
 	header[1] |= 0x01
 	// profile 2 bits + sampling_freq_index 4 bits + private 1 bit
-	header[2] = ((c.Profile + 1) << 6) | (c.SampleRateIndex() << 2) | 0
+	header[2] = ((c.Profile + 1) << 6) | (c.SampleRateIndex() << 2)
 	// channel_config 3 bits + original_copy 1 + home 1 + copyright_id_bit 1 + copyright_id_start 1 + frame_length 2 bits(high)
 	chCfg := byte(c.Channels)
 	if chCfg == 0 {

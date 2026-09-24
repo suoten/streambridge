@@ -184,8 +184,6 @@ type TSMuxer struct {
 	buf        bytes.Buffer
 	patSent    bool
 	pmtSent    bool
-	pcrSent    bool
-	pesPid     uint16
 	cc         map[uint16]byte // continuity_counter
 }
 

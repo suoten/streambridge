@@ -64,12 +64,10 @@ type Session struct {
 
 	// H265→H264 转码器(可选,当流的视频编码为 H265 且配置启用时创建)
 	transcoder    *transcoder.Transcoder
-	transcoderMu  sync.Mutex
 	isTranscoded  bool // 是否正在转码(用于 VideoTrack() 返回正确的轨道)
 
 	// 统计
 	bytesIn    atomic.Int64
-	bytesOut   atomic.Int64
 	frameCount atomic.Int64
 	lastFrameAt atomic.Int64
 }
