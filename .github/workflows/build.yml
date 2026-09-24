@@ -93,9 +93,10 @@ jobs:
           export GOARCH=${{ matrix.arch }}
           export CGO_ENABLED=0
           go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
+          test -f ${{ matrix.output }}
 
       - name: Upload build log on failure
-        if: failure() && matrix.os != 'windows'
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ matrix.os }}-${{ matrix.arch }}
@@ -110,7 +111,9 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-        run: go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 | tee build.log
+        run: |
+          go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge 2>&1 || true
+          test -f ${{ matrix.output }}
 
       - name: Smoke test (Unix)
         if: matrix.os != 'windows'
