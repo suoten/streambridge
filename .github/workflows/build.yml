@@ -86,7 +86,15 @@ jobs:
 
       - name: Build (Unix)
         if: matrix.os != 'windows'
-        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -mod=mod -trimpath -o ${{ matrix.output }} ./cmd/streambridge
+        shell: bash
+        run: |
+          echo "GOOS=$GOOS GOARCH=$GOARCH"
+          which go
+          go version
+          CGO_ENABLED=0 go build -mod=mod -trimpath -o "${{ matrix.output }}" ./cmd/streambridge
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
 
       - name: Build (Windows)
         if: matrix.os == 'windows'
